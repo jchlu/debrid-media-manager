@@ -44,6 +44,30 @@ describe('parseArgs', () => {
 		expect(parseArgs(['--dump=dune'])).toEqual({ kind: 'dump', query: 'dune' });
 	});
 
+	it('carries --season through to --dump', () => {
+		expect(parseArgs(['--dump', 'breaking bad', '--season', '2'])).toEqual({
+			kind: 'dump',
+			query: 'breaking bad',
+			season: 2,
+		});
+		expect(parseArgs(['--dump=x', '--season=0'])).toEqual({
+			kind: 'dump',
+			query: 'x',
+			season: 0,
+		});
+	});
+
+	it.each([['two'], ['1.5'], ['-1']])(
+		'rejects a season that is not a whole number (%s)',
+		(raw) => {
+			expect(() => parseArgs(['--dump', 'x', '--season', raw])).toThrow(ArgError);
+		}
+	);
+
+	it('rejects --season with no value', () => {
+		expect(() => parseArgs(['--season'])).toThrow('--season needs a value.');
+	});
+
 	it('lets help win over every other mode', () => {
 		expect(parseArgs(['--dump', 'dune', '--help']).kind).toBe('help');
 		expect(parseArgs(['--check-config', '-h']).kind).toBe('help');
@@ -70,7 +94,14 @@ describe('parseArgs', () => {
 
 describe('USAGE', () => {
 	it('documents every mode parseArgs can return', () => {
-		for (const flag of ['--check-config', '--base-url', '--query', '--dump', '--help']) {
+		for (const flag of [
+			'--check-config',
+			'--base-url',
+			'--query',
+			'--dump',
+			'--season',
+			'--help',
+		]) {
 			expect(USAGE).toContain(flag);
 		}
 	});

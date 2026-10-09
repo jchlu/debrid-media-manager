@@ -68,9 +68,9 @@ async function main(): Promise<number> {
 			return await checkConfig({ baseUrl: undefined });
 		}
 		if (args.kind === 'dump') {
-			// Slice 2. Reached only once the read pipeline exists.
-			process.stderr.write('--dump is not implemented yet.\n');
-			return EXIT_FAILED;
+			const config = loadConfig({ baseUrl: undefined });
+			const { dump } = await import('@/tui/dump');
+			return await dump(config, args.query, args.season);
 		}
 		// Slice 4. The UI lands after the read path and the provider logic, so
 		// that there is no way to spend Torbox points while the grid is being

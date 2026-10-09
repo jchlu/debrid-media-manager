@@ -12,7 +12,7 @@ export type ParsedArgs =
 	| { kind: 'help' }
 	| { kind: 'check-config' }
 	/** Runs the read pipeline and prints raw JSON. No UI, no writes. */
-	| { kind: 'dump'; query: string }
+	| { kind: 'dump'; query: string; season?: number }
 	| { kind: 'interactive'; baseUrl?: string; query?: string };
 
 /** A rejected command line. The message is printed verbatim, so it names the fix. */
@@ -23,7 +23,7 @@ export class ArgError extends Error {
 	}
 }
 
-const FLAGS_WITH_VALUE = new Set(['--base-url', '--query', '--dump']);
+const FLAGS_WITH_VALUE = new Set(['--base-url', '--query', '--dump', '--season']);
 
 export const USAGE = `dmm-tui — search a title and add a release to your Torbox account
 
@@ -37,6 +37,7 @@ Options:
       --base-url URL    Override the DMM base URL for this run.
       --query TITLE     Skip the search screen and open the grid for TITLE.
       --dump TITLE      Run the read pipeline for TITLE and print raw JSON.
+      --season N        With --dump on a show, read season N instead of a movie.
 
 Everything else comes from ~/.config/dmm-tui/config.json or the environment.`;
 
@@ -49,6 +50,7 @@ export function parseArgs(argv: string[]): ParsedArgs {
 	let baseUrl: string | undefined;
 	let query: string | undefined;
 	let dumpQuery: string | undefined;
+	let season: number | undefined;
 
 	for (let i = 0; i < argv.length; i++) {
 		const arg = argv[i];
@@ -75,6 +77,20 @@ export function parseArgs(argv: string[]): ParsedArgs {
 				query = inlineValue ?? argv[++i];
 				if (!query) throw new ArgError(needsValue(flag));
 				break;
+			case '--season': {
+				const raw = inlineValue ?? argv[++i];
+				if (raw === undefined) throw new ArgError(needsValue(flag));
+				// Rejected rather than coerced: season 0 is the specials bucket and
+				// season "two" is a typo, and both would otherwise become NaN deep
+				// inside a request that looks fine until DMM answers 400.
+				season = Number(raw);
+				if (!Number.isInteger(season) || season < 0) {
+					throw new ArgError(
+						`--season must be a whole number of 0 or more (got "${raw}").`
+					);
+				}
+				break;
+			}
 			case '--dump':
 				mode = mode === null ? 'dump' : mode;
 				dumpQuery = inlineValue ?? argv[++i];
@@ -90,6 +106,10 @@ export function parseArgs(argv: string[]): ParsedArgs {
 
 	if (mode === 'help') return { kind: 'help' };
 	if (mode === 'check-config') return { kind: 'check-config' };
-	if (mode === 'dump') return { kind: 'dump', query: dumpQuery! };
+	if (mode === 'dump') {
+		return season === undefined
+			? { kind: 'dump', query: dumpQuery! }
+			: { kind: 'dump', query: dumpQuery!, season };
+	}
 	return baseUrl || query ? { kind: 'interactive', baseUrl, query } : { kind: 'interactive' };
 }

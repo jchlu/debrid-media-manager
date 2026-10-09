@@ -93,26 +93,26 @@ build artifact and passes once `npm run build` has produced it.
 
 ## Slice 2 — DMM read path
 
-- [ ] **Task: `dmm/client.ts` — base URL, fetch wrapper, error normalisation**
+**Slice 2 complete.** 124 TUI tests, typecheck clean, Prettier and ESLint clean, and the
+whole read path verified against the live instance with `--dump`.
+
+- [x] **Task: `dmm/client.ts` — base URL, fetch wrapper, error normalisation**
     - Acceptance: every failure becomes one of the §Error handling shapes; a `403` names the
       challenge token as the likely cause.
     - Verify: `src/tui/dmm/client.test.ts` with `fetch` stubbed per shape.
     - Files: `src/tui/dmm/client.ts`, `src/tui/dmm/client.test.ts`
 
-- [ ] **Task: `dmm/challenge.ts` — 2-minute cache, shared in-flight request**
+- [x] **Task: `dmm/challenge.ts` — 2-minute cache, shared in-flight request**
     - Acceptance: two concurrent callers cause one mint; the pair is reused for 2 minutes; one
       re-mint after expiry. Exports a reset seam.
     - Verify: `src/tui/dmm/challenge.test.ts` with fake timers.
     - Files: `src/tui/dmm/challenge.ts`, `src/tui/dmm/challenge.test.ts`
 
-- [ ] **Task: `dmm/titles.ts` — Trakt search and array normalisation**
-    - Acceptance: handles both `{movie}` and `{show}` entries, produces `{ imdbid, type, title,
-year }`, and drops entries with no IMDb id. Does not call `/api/search/title`.
-    - Verify: `src/tui/dmm/titles.test.ts` over a recorded Trakt array including the
-      `El Camino: A Breaking Bad Movie` shape.
-    - Files: `src/tui/dmm/titles.ts`, `src/tui/dmm/titles.test.ts`
+- [x] **Task: `dmm/titles.ts` — Trakt search and array normalisation** - Acceptance: handles both `{movie}` and `{show}` entries, produces `{ imdbid, type, title,
+year }`, and drops entries with no IMDb id. Does not call `/api/search/title`. - Verify: `src/tui/dmm/titles.test.ts` over a recorded Trakt array including the
+      `El Camino: A Breaking Bad Movie` shape. - Files: `src/tui/dmm/titles.ts`, `src/tui/dmm/titles.test.ts`
 
-- [ ] **Task: `dmm/releases.ts` — movie and season grids behind a 2.5 s serial queue**
+- [x] **Task: `dmm/releases.ts` — movie and season grids behind a 2.5 s serial queue**
     - Acceptance: every call carries `dmmProblemKey` and `solution`; two calls are ≥2.5 s apart;
       `204` becomes the not-yet-scraped state with its `status` value, and an empty first page
       is not treated as an error.
@@ -120,19 +120,39 @@ year }`, and drops entries with no IMDb id. Does not call `/api/search/title`.
       `204/requested` and `204/processing` cases.
     - Files: `src/tui/dmm/releases.ts`, `src/tui/dmm/releases.test.ts`
 
-- [ ] **Task: `dmm/info.ts` — movie and show metadata**
+- [x] **Task: `dmm/info.ts` — movie and show metadata**
     - Acceptance: returns `title`, `year`, and for a show `season_episode_counts` and
       `last_episode_to_air`.
     - Verify: `src/tui/dmm/info.test.ts`, stubbed.
     - Files: `src/tui/dmm/info.ts`, `src/tui/dmm/info.test.ts`
 
-- [ ] **Task: `--dump <query>` — the read path without a UI**
+- [x] **Task: `--dump <query>` — the read path without a UI**
     - Acceptance: runs challenge → titles → info → releases → probe and prints raw JSON, so the
       whole path is checkable on your box.
     - Verify: `npm run tui -- --dump dune` from here (expect the `204/requested` state today).
     - Files: `src/tui/index.tsx`
 
 ---
+
+### Slice 2 notes
+
+- **`--dump` confirmed the not-scraped state is not an error.** Against the live instance
+  it reports `not scraped yet — a scrape was queued` and exits 0, reading the 204's
+  `status: requested` header.
+- **A metadata failure does not stop the releases call.** On a cold instance
+  `/api/info/movie` timed out while `/api/torrents/movie` still ran. Metadata is
+  decoration and should not hide the part worth seeing; that is now a tested decision.
+- **The 2.5 s floor is a serial queue, not a per-call delay**, so it is testable with
+  fake timers and two concurrent calls cannot slip past it. A throwing call still
+  releases the queue.
+- **`airedEpisodeCount` is a one-directional cap.** It stops a listed count running ahead
+  of what has aired; it does not raise a stale provider count. A test asserting otherwise
+  was wrong, and the existing behaviour was kept.
+- **`/api/info/show` returns `S0=10` for specials.** `expectedEpisodes` handles season 0,
+  but the picker should not offer it beside aired seasons without saying so.
+
+**Still blocking slice 4:** `/api/torrents/*` answers `204 requested` for every title
+tried, Breaking Bad included. The scrapers on the DMM instance are not producing rows.
 
 ## Slice 3 — Torbox probe, add, normalisation
 
@@ -252,8 +272,5 @@ year }`, and drops entries with no IMDb id. Does not call `/api/search/title`.
     - Verify: `src/tui/ui/terminal.restore.test.ts` — the only honest way to test a crash path.
     - Files: `src/tui/ui/terminal.ts`, `src/tui/ui/terminal.restore.test.ts`
 
-- [ ] **Task: README section and final pass**
-    - Acceptance: install, configure, and run instructions; `npm run typecheck && npm run test
-&& npm run lint` all pass with the web build unchanged.
-    - Verify: the three commands, plus a final `tmux` pass over the whole loop.
-    - Files: `README.md`
+- [ ] **Task: README section and final pass** - Acceptance: install, configure, and run instructions; `npm run typecheck && npm run test
+&& npm run lint` all pass with the web build unchanged. - Verify: the three commands, plus a final `tmux` pass over the whole loop. - Files: `README.md`

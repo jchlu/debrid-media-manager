@@ -77,9 +77,11 @@ welcome; everything downstream depends on these.**
 
 1. **Node 22+** on the Debian host, now declared in `package.json` `engines`. Ink 8
    requires it. See §Decisions — this was 20+ until implementation showed otherwise.
-2. **The TUI runs on the host, not inside a container**, and reaches DMM over the network
-   (typically `http://localhost:3000`, but DMM is deployed via Docker Swarm, so the address
-   is explicit configuration with no default rather than a guess).
+2. **The TUI runs on the host, alongside a native DMM install.** DMM runs directly on the
+   Debian box against a local MariaDB, not in a container, so the two share a Node
+   installation and a loopback address. `dmmBaseUrl` is therefore typically
+   `http://localhost:3000`, but stays explicit configuration with no default — the port and
+   bind address are facts about the deployment, and the TUI must not assume them.
 3. **`TERM` is not trusted.** The client must render correctly under `dumb`, a 16-colour
    `$TERM`, and a detached `tmux` pane narrower than the content. Colour is decoration, never
    the only carrier of meaning — "cached" is also a text label.
@@ -462,9 +464,10 @@ Precedence: environment variable, then config file, then built-in default.
 an archive-only cached row would satisfy `is:tb` and slip through. Filtering it in the TUI's
 own normalisation layer is the only place that knows both facts.
 
-`dmmBaseUrl` has no default on purpose: DMM is deployed via Docker Swarm, so whether the
-host reaches it on `localhost`, on a published port, or on the overlay network is a fact
-about the deployment, not something to guess.
+`dmmBaseUrl` has no default on purpose: DMM is installed natively rather than in a
+container, so whether the host reaches it on `localhost:3000`, on another port, or bound to
+a specific interface is a fact about the deployment, not something to guess. It is also the
+one setting most often overridden per run, which is why `--base-url` exists at all.
 
 Config path: `$XDG_CONFIG_HOME/dmm-tui/config.json`, falling back to
 `~/.config/dmm-tui/config.json`.
@@ -496,9 +499,9 @@ silent success. The key is never written to stdout, never logged, and never plac
 | Torbox `mylist`        | 250/min (default)   | Once per add, verification only                                                                                      |
 
 The 2.5 s floor on `/api/torrents/*` is above the documented 2 s limit on purpose: the limit
-is a fixed window per IP, and the TUI shares an IP with the DMM container, the cron jobs, and
-whatever Zurg is doing. Sitting 500 ms under the line is cheaper than a 429 that surfaces as
-an empty grid.
+is a fixed window per IP, and DMM runs natively on the same host, so the TUI's loopback
+requests share a counter with anything else on that box hitting the endpoint. Sitting 500 ms
+under the line is cheaper than a 429 that surfaces as an empty grid with no explanation.
 
 ---
 

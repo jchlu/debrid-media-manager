@@ -1,0 +1,141 @@
+import type { Config } from '@/tui/config';
+import { fetchMovieInfo, fetchShowInfo } from '@/tui/dmm/info';
+import { createReleasesClient } from '@/tui/dmm/releases';
+import { asImdbId, searchTitles, type Title } from '@/tui/dmm/titles';
+
+/**
+ * `--dump`: run the read path and print what came back, with no UI.
+ *
+ * Exists because every stage of the pipeline is separately verifiable against a
+ * real DMM instance, and a terminal client that only reports failure as "no
+ * results" throws that away. Each stage prints its verdict before the next runs,
+ * so a break is visible at the stage that broke rather than as an empty grid.
+ */
+
+const out = (line = '') => process.stdout.write(`${line}\n`);
+const err = (line: string) => process.stderr.write(`${line}\n`);
+
+const headings = {
+	challenge: '1. Challenge token',
+	titles: '2. Title search',
+	info: '3. Media info',
+	releases: '4. Releases',
+} as const;
+
+/** A bare hash, so a row can be pasted straight into a magnet or a lookup. */
+const shortHash = (hash: string) => `${hash.slice(0, 12)}…`;
+
+export async function dump(config: Config, query: string, seasonNum?: number): Promise<number> {
+	const releases = createReleasesClient(config.dmmBaseUrl);
+
+	out(`dmm-tui read dump — "${query}"`);
+	out(`DMM base URL: ${config.dmmBaseUrl}`);
+	out();
+
+	// The challenge is fetched implicitly by the release call, so it is asked for
+	// here first to make its own failure readable rather than surfacing later as
+	// a 403 on a call the user never made.
+	out(headings.challenge);
+	try {
+		const { createChallengeClient } = await import('@/tui/dmm/challenge');
+		const challenge = await createChallengeClient(config.dmmBaseUrl).get();
+		out(`  ok — token ${challenge.token.slice(0, 12)}…`);
+	} catch (error) {
+		err(`  FAILED — ${error instanceof Error ? error.message : String(error)}`);
+		return 1;
+	}
+	out();
+
+	// An id is searched directly, the way the browser routes `tt…` to a page.
+	const directId = asImdbId(query);
+	let title: Title | undefined;
+	if (directId) {
+		title = { imdbid: directId, type: 'movie', title: query };
+		out(headings.titles);
+		out(`  "${directId}" is an IMDb id, skipping the title search.`);
+		out();
+	} else {
+		out(headings.titles);
+		let titles: Title[];
+		try {
+			titles = await searchTitles(config.dmmBaseUrl, query);
+		} catch (error) {
+			err(`  FAILED — ${error instanceof Error ? error.message : String(error)}`);
+			return 1;
+		}
+		if (!titles.length) {
+			out('  nothing found.');
+			out();
+			return 0;
+		}
+		for (const t of titles) {
+			out(`  [${t.type.padEnd(5)}] ${t.title}${t.year ? ` (${t.year})` : ''}  ${t.imdbid}`);
+		}
+		out();
+		// The first hit stands in for the user's selection, which is what the
+		// picker would provide. Its irrelevance to the query is not this
+		// command's problem to judge — the point is to show the shape.
+		title = titles[0];
+	}
+
+	if (!title) return 0;
+
+	out(headings.info);
+	try {
+		const info =
+			title.type === 'show'
+				? await fetchShowInfo(config.dmmBaseUrl, title.imdbid)
+				: await fetchMovieInfo(config.dmmBaseUrl, title.imdbid);
+		out(`  ${info.title}${info.year ? ` (${info.year})` : ''}`);
+		if (info.seasonEpisodeCounts) {
+			const entries = Object.entries(info.seasonEpisodeCounts)
+				.sort((a, b) => Number(a[0]) - Number(b[0]))
+				.map(([season, count]) => `S${season}=${count}`)
+				.join(' ');
+			out(`  season episode counts: ${entries}`);
+		}
+		if (info.lastEpisodeToAir) {
+			out(
+				`  last aired: S${String(info.lastEpisodeToAir.season_number)}E${String(
+					info.lastEpisodeToAir.episode_number
+				)}`
+			);
+		}
+	} catch (error) {
+		// Metadata is decoration here. Losing it should not stop the releases,
+		// which are the part worth seeing.
+		err(`  FAILED — ${error instanceof Error ? error.message : String(error)}`);
+	}
+	out();
+
+	out(headings.releases);
+	try {
+		const result =
+			seasonNum !== undefined && title.type === 'show'
+				? await releases.season(title.imdbid, seasonNum)
+				: await releases.movie(title.imdbid);
+		if (result.state === 'not-scraped') {
+			out('  not scraped yet.');
+			return 0;
+		}
+		out(`  ${result.releases.length} release(s).`);
+		for (const release of result.releases.slice(0, 20)) {
+			const size =
+				release.fileSize > 0 ? `${release.fileSize.toFixed(2)} MB` : 'size unknown';
+			out(`  ${shortHash(release.hash)}  ${size.padStart(16)}  ${release.title}`);
+		}
+		if (result.releases.length > 20) {
+			out(`  … and ${result.releases.length - 20} more.`);
+		}
+	} catch (error) {
+		const message = error instanceof Error ? error.message : String(error);
+		if (/not scraped/.test(message)) {
+			out('  not scraped yet — a scrape was queued. Re-run in a minute or two.');
+			return 0;
+		}
+		err(`  FAILED — ${message}`);
+		return 1;
+	}
+
+	return 0;
+}
