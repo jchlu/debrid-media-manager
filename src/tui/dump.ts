@@ -1,7 +1,11 @@
 import type { Config } from '@/tui/config';
 import { fetchMovieInfo, fetchShowInfo } from '@/tui/dmm/info';
+import type { Release } from '@/tui/dmm/releases';
 import { createReleasesClient } from '@/tui/dmm/releases';
 import { asImdbId, searchTitles, type Title } from '@/tui/dmm/titles';
+import { toGridRows, visibleRows } from '@/tui/logic/normalise';
+import type { TbState } from '@/tui/logic/types';
+import { probeTorBox } from '@/tui/torbox/probe';
 
 /**
  * `--dump`: run the read path and print what came back, with no UI.
@@ -20,6 +24,7 @@ const headings = {
 	titles: '2. Title search',
 	info: '3. Media info',
 	releases: '4. Releases',
+	torbox: '5. Torbox cache probe',
 } as const;
 
 /** A bare hash, so a row can be pasted straight into a magnet or a lookup. */
@@ -109,6 +114,7 @@ export async function dump(config: Config, query: string, seasonNum?: number): P
 	out();
 
 	out(headings.releases);
+	let rows: Release[] = [];
 	try {
 		const result =
 			seasonNum !== undefined && title.type === 'show'
@@ -118,14 +124,15 @@ export async function dump(config: Config, query: string, seasonNum?: number): P
 			out('  not scraped yet.');
 			return 0;
 		}
-		out(`  ${result.releases.length} release(s).`);
-		for (const release of result.releases.slice(0, 20)) {
+		rows = result.releases;
+		out(`  ${rows.length} release(s).`);
+		for (const release of rows.slice(0, 20)) {
 			const size =
 				release.fileSize > 0 ? `${release.fileSize.toFixed(2)} MB` : 'size unknown';
 			out(`  ${shortHash(release.hash)}  ${size.padStart(16)}  ${release.title}`);
 		}
-		if (result.releases.length > 20) {
-			out(`  … and ${result.releases.length - 20} more.`);
+		if (rows.length > 20) {
+			out(`  … and ${rows.length - 20} more.`);
 		}
 	} catch (error) {
 		const message = error instanceof Error ? error.message : String(error);
@@ -135,6 +142,43 @@ export async function dump(config: Config, query: string, seasonNum?: number): P
 		}
 		err(`  FAILED — ${message}`);
 		return 1;
+	}
+	out();
+
+	// The Torbox half only runs when there is something to probe, so a --dump
+	// against an unscraped title needs no Torbox key at all.
+	if (!rows.length) return 0;
+
+	out(headings.torbox);
+	out('  probing the Torbox cache…');
+	const probe = await probeTorBox(
+		config.torboxApiKey,
+		rows.map((r) => r.hash),
+		config.torboxApiBase
+	);
+	const grid = toGridRows(rows, probe);
+	const shown = visibleRows(grid, {
+		showUncached: config.showUncached,
+		showArchiveOnly: config.showArchiveOnly,
+	});
+
+	const tally = (state: TbState) => grid.filter((r) => r.state === state).length;
+	out(
+		`  instant ${tally('instant')} · archive ${tally('archive')} · ` +
+			`uncached ${tally('uncached')} · unknown ${tally('unknown')}`
+	);
+	out(`  showing ${shown.length} row(s) under the current guards.`);
+	out();
+	for (const row of shown.slice(0, 20)) {
+		out(
+			`  ${row.reachable ? 'ADD' : '   '} ${row.state.padEnd(8)} ` +
+				`${String(row.videoCount).padStart(3)} vid  ` +
+				`${row.biggestVideoMb.toFixed(0).padStart(7)} MB  ${shortHash(row.hash)}`
+		);
+	}
+	if (probe.unknown.size) {
+		out();
+		out(`  ${probe.unknown.size} row(s) got no verdict from Torbox, and are not shown.`);
 	}
 
 	return 0;

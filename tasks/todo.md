@@ -156,19 +156,19 @@ tried, Breaking Bad included. The scrapers on the DMM instance are not producing
 
 ## Slice 3 — Torbox probe, add, normalisation
 
-- [ ] **Task: `torbox/client.ts` — bearer, timeout, `Retry-After`**
+- [x] **Task: `torbox/client.ts` — bearer, timeout, `Retry-After`**
     - Acceptance: a `429` surfaces the retry delay rather than retrying into it.
     - Verify: `src/tui/torbox/client.test.ts`.
     - Files: `src/tui/torbox/client.ts`, `src/tui/torbox/client.test.ts`
 
-- [ ] **Task: `torbox/probe.ts` — the batched cache probe**
+- [x] **Task: `torbox/probe.ts` — the batched cache probe**
     - Acceptance: chunks at 100; treats `data` as hits-only; a timeout or missing `success`
       yields `unknown`, never `uncached`; file ids come from `file.id`, never from array index.
     - Verify: `src/tui/torbox/probe.test.ts` against `spiderman3-uhd-torbox-checkcached.json`,
       `tb-checkcached-batch.json`, `tb-checkcached-uncached.json`.
     - Files: `src/tui/torbox/probe.ts`, `src/tui/torbox/probe.test.ts`
 
-- [ ] **Task: `logic/fileStats.ts` and `logic/normalise.ts`**
+- [x] **Task: `logic/fileStats.ts` and `logic/normalise.ts`**
     - Acceptance: one probe yields `videoCount`, biggest, median, mean, `noVideos` and
       `archiveOnly`; an unknown row is distinguishable from an uncached one everywhere it is
       rendered.
@@ -177,7 +177,7 @@ tried, Breaking Bad included. The scrapers on the DMM instance are not producing
     - Files: `src/tui/logic/types.ts`, `src/tui/logic/fileStats.ts`, `src/tui/logic/normalise.ts`,
       and their tests
 
-- [ ] **Task: `torbox/add.ts` — create and verify**
+- [x] **Task: `torbox/add.ts` — create and verify**
     - Acceptance: success requires `success === true` **and** `torrent_id || queued_id`; a
       missing id is reported as such rather than as success; a failed `mylist` verification is
       a warning, not a failed add.
@@ -187,6 +187,29 @@ tried, Breaking Bad included. The scrapers on the DMM instance are not producing
     - Files: `src/tui/torbox/add.ts`, `src/tui/torbox/add.test.ts`
 
 ---
+
+### Slice 3 notes
+
+- **`TIMEOUT_MS` is not exported from `utils/torboxCache.ts`.** Importing it anyway
+  gave `undefined` at runtime rather than a build error, which turned every chunk
+  into an immediate timeout and made the whole probe look broken. Declared locally
+  with a comment pointing at the original.
+- **The recorded fixtures are not uniformly shaped.** The `checkcached` recordings
+  are the raw envelope; the `torbox/*` ones are wrapped as `{status, body}`. A test
+  helper that assumed one failed as an _empty result_, not an error — the same
+  failure mode `unknown` exists to prevent.
+- **`pacedAdd` was a real concurrency bug, caught by its test.** It read `lastAddAt`
+  on entry, so two adds launched together both saw a stale value and both fired.
+  Rewritten as a serial queue, the same shape as `dmm/releases.ts` for the same reason.
+- **The guards are asserted as counts, not just cases.** With nothing configured,
+  `visibleRows` returns exactly one reachable row in the fixture set — one keypress
+  can only reach something that costs no points and plays.
+- **`unknown` is never shown, under any combination of toggles.** A row whose
+  verdict failed is not evidence of anything.
+
+**Fixture coverage:** `spiderman3-uhd-torbox-checkcached.json` (real, with a file
+listing), `tb-checkcached-batch.json`, `tb-checkcached-uncached.json`,
+`createtorrent-plan-restricted-2026-09-23.json`. No live Torbox call is made by any test.
 
 ## Slice 4 — Table and navigation
 
