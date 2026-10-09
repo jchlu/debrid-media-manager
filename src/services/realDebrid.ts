@@ -34,8 +34,8 @@ const config = (() => {
 })();
 
 // Constants for timeout and retry
-const REQUEST_TIMEOUT = 10000; // Increased from 5s to 10s
-const TORRENT_REQUEST_TIMEOUT = 60000; // 60s timeout for slow connections
+const REQUEST_TIMEOUT = 20000; // 20s ceiling on connecting to an external host
+const TORRENT_REQUEST_TIMEOUT = 20000; // Same 20s ceiling; was 60s for slow connections
 // Adjust rate limits to be compatible with the service worker cache timing
 // Service worker cache is 5 seconds, so we need to ensure requests are spaced
 // to avoid conflicting with cache invalidation
@@ -905,7 +905,7 @@ export const proxyUnrestrictLink = async (
 		};
 
 		const response = await genericAxios.post<UnrestrictResponse>(
-			`https://unrestrict.debridmediamanager.com/`,
+			`${config.realDebridHostname}/rest/1.0/unrestrict/link`,
 			body,
 			{ headers }
 		);

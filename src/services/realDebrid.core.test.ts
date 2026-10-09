@@ -175,13 +175,13 @@ describe('RealDebrid link helpers', () => {
 		expect(privateCall[1]).not.toContain('ip=');
 	});
 
-	it('delegates proxy unrestrict to the generic axios client', async () => {
+	it('posts the unrestrict request straight to Real-Debrid', async () => {
 		genericAxios.post.mockResolvedValue({ data: { link: 'proxied' } });
 		await expect(proxyUnrestrictLink('token', 'https://example.com')).resolves.toEqual({
 			link: 'proxied',
 		});
 		const [url, body] = genericAxios.post.mock.calls[0];
-		expect(url).toBe('https://unrestrict.debridmediamanager.com/');
+		expect(url).toBe('https://rd.test/rest/1.0/unrestrict/link');
 		expect(body).toBe(JSON.stringify({ link: 'https://example.com' }));
 	});
 });

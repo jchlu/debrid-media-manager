@@ -76,4 +76,89 @@ describe('Torbox login page', () => {
 		fireEvent.click(screen.getByRole('button', { name: /get api key/i }));
 		expect(window.open).toHaveBeenCalledWith('https://torbox.app/settings', '_blank');
 	});
+
+	// TorBox carries the reason in `detail` and leaves `message` unset, so
+	// reading `message` alone reported a rejected key as a bare axios string.
+	it("reports TorBox's own reason for a refused key", async () => {
+		getUserDataMock.mockRejectedValue({
+			message: 'Request failed with status code 403',
+			response: {
+				data: {
+					success: false,
+					error: 'BAD_TOKEN',
+					detail: 'Your token is invalid or has expired.',
+					data: null,
+				},
+				status: 403,
+			},
+		});
+
+		submitApiKey('tb-key');
+
+		await waitFor(() =>
+			expect(
+				screen.getByText(/API Error: Your token is invalid or has expired\. Status: 403/i)
+			).toBeInTheDocument()
+		);
+	});
+
+	it('does not double the period when the reason already ends in one', async () => {
+		getUserDataMock.mockRejectedValue({
+			message: 'Request failed with status code 403',
+			response: {
+				data: { success: false, error: 'BAD_TOKEN', detail: 'Token expired.' },
+				status: 403,
+			},
+		});
+
+		submitApiKey('tb-key');
+
+		await waitFor(() =>
+			expect(screen.getByText(/API Error: Token expired\. Status: 403/i)).toBeInTheDocument()
+		);
+		expect(screen.queryByText(/expired\.\./)).not.toBeInTheDocument();
+	});
+
+	it('falls back to the error code when TorBox sends no detail', async () => {
+		getUserDataMock.mockRejectedValue({
+			message: 'Request failed with status code 403',
+			response: { data: { success: false, error: 'BAD_TOKEN', detail: '' }, status: 403 },
+		});
+
+		submitApiKey('tb-key');
+
+		await waitFor(() =>
+			expect(screen.getByText(/API Error: BAD_TOKEN\. Status: 403/i)).toBeInTheDocument()
+		);
+	});
+
+	it('ignores a falsy error field rather than printing it', async () => {
+		getUserDataMock.mockRejectedValue({
+			message: 'Request failed with status code 500',
+			response: { data: { success: false, error: false, detail: '' }, status: 500 },
+		});
+
+		submitApiKey('tb-key');
+
+		await waitFor(() =>
+			expect(
+				screen.getByText(/API Error: Request failed with status code 500\. Status: 500/i)
+			).toBeInTheDocument()
+		);
+	});
+
+	it('surfaces a plain-text refusal from the proxy route', async () => {
+		getUserDataMock.mockRejectedValue({
+			message: 'Request failed with status code 403',
+			response: { data: 'Host is not allowed', status: 403 },
+		});
+
+		submitApiKey('tb-key');
+
+		await waitFor(() =>
+			expect(
+				screen.getByText(/API Error: Host is not allowed\. Status: 403/i)
+			).toBeInTheDocument()
+		);
+	});
 });

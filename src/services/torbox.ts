@@ -39,7 +39,7 @@ const config = (() => {
 })();
 
 // Constants
-const REQUEST_TIMEOUT = 10000;
+const REQUEST_TIMEOUT = 20000;
 const BASE_URL = 'https://api.torbox.app';
 const API_VERSION = 'v1';
 
@@ -300,19 +300,21 @@ function getProxyUrl(baseUrl: string): string {
 }
 
 // Get the base URL for TorBox API (with or without proxy)
-// Server-side calls bypass the proxy (the CF Worker rejects them with 403);
-// client-side calls go through the Cloudflare Worker to avoid CORS.
+// Server-side calls bypass the proxy entirely - Node reaches api.torbox.app
+// directly, and only browser calls need help around CORS.
+// Client-side calls go through the self-hosted `/api/anticors` route.
 //
-// Browser traffic must NOT go through our own anticors (`authProxy`). That
-// hostname is wildcard DNS onto the single dmm-01 host, so it pools every
-// user's TorBox calls into one per-IP rate-limit bucket - TorBox began 429ing
-// 7 minutes after we tried it on 2026-08-24 and throttled ~20% of all calls
-// until it was reverted. The Worker egresses from Cloudflare's pool instead,
-// which is what keeps each user in their own bucket. It is also the only safe
-// path for requestdl, which puts the raw API key in `?token=`: our own nginx
-// logs query strings, the Worker does not.
+// `authProxy` is deliberately NOT used here. That hostname is wildcard DNS onto
+// the single dmm-01 host, so it pools every user's TorBox calls into one per-IP
+// rate-limit bucket - TorBox began 429ing 7 minutes after we tried it on
+// 2026-08-24 and throttled ~20% of all calls until it was reverted. Keep the
+// unauthenticated `proxy` route for TorBox: it serves from the caller's own
+// origin, so each user stays in their own rate-limit bucket.
 //
-// Observing this traffic is the Worker's job, not a reason to re-route it.
+// `requestdl` puts the raw API key in `?token=`, so that URL can land in web
+// server access logs. The previous Worker egressed from Cloudflare and did not
+// log query strings; the local route cannot make that promise, so it is worth
+// filtering `url` out of any access-log config before enabling requestdl.
 function getTorBoxBaseUrl(): string {
 	const torboxHost = config.torboxHostname || BASE_URL;
 	const isServer = typeof window === 'undefined';
@@ -320,7 +322,10 @@ function getTorBoxBaseUrl(): string {
 		return torboxHost;
 	}
 	if (config.proxy) {
-		return `${getProxyUrl(config.proxy)}${torboxHost}`;
+		const proxyBase = config.proxy.startsWith('http')
+			? config.proxy
+			: window.location.origin + config.proxy;
+		return `${getProxyUrl(proxyBase)}${torboxHost}`;
 	}
 	return torboxHost;
 }

@@ -131,8 +131,8 @@ const nextConfig = {
 	publicRuntimeConfig: {
 		// Will be available on both server and client
 		externalSearchApiHostname: process.env.EXTERNAL_SEARCH_API_HOSTNAME,
-		// Cloudflare Worker anticors proxy (unauthenticated RD endpoints)
-		proxy: 'https://anticors.debridmediamanager.com/anticors?url=',
+		// Self-hosted anticors proxy (unauthenticated RD endpoints)
+		proxy: '/api/anticors?url=',
 		// Self-hosted anticors for authenticated RD endpoints (no rate limiting with API key)
 		authProxy: 'https://#num#.cors.debridmediamanager.com/api/anticors?url=',
 		realDebridHostname: 'https://app.real-debrid.com',

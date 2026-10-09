@@ -5,6 +5,32 @@ import Head from 'next/head';
 import { useRouter } from 'next/router';
 import { useState } from 'react';
 
+/**
+ * The reason a validation call failed, in the words of whoever refused it.
+ *
+ * TorBox answers application conditions in its own envelope and puts the prose
+ * in `detail`, never in `message` - so reading `data.message` alone reported
+ * every one of them as the bare axios string "Request failed with status code
+ * 403", which says nothing about the key being the thing at fault. `error` is
+ * `false` rather than absent on some bodies, so it is only used when it is a
+ * non-empty string. The proxy route answers in plain text instead, hence the
+ * string case.
+ */
+const describeFailure = (err: any): string => {
+	const data = err?.response?.data;
+	const text = (value: unknown): string =>
+		typeof value === 'string' ? value.trim().replace(/\.$/, '') : '';
+	const detail = text(data?.detail);
+	if (detail) return detail;
+	const code = text(data?.error);
+	if (code) return code;
+	const plainText = text(data);
+	if (plainText) return plainText;
+	const message = text(data?.message);
+	if (message) return message;
+	return err?.message || 'Could not validate API key';
+};
+
 export default function TorboxLoginPage() {
 	const router = useRouter();
 	const [, setApiKey] = useLocalStorage<string>('tb:apiKey');
@@ -36,7 +62,7 @@ export default function TorboxLoginPage() {
 			);
 			console.error('[TorboxLogin] validation failed', err);
 			setError(
-				`API Error: ${err.response?.data?.message || err.message || 'Could not validate API key'}. Status: ${err.response?.status || 'unknown'}`
+				`API Error: ${describeFailure(err)}. Status: ${err.response?.status || 'unknown'}`
 			);
 		}
 	};

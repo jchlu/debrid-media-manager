@@ -18,7 +18,7 @@ const config = (() => {
 })();
 
 // Constants for timeout and retry
-const REQUEST_TIMEOUT = 10000;
+const REQUEST_TIMEOUT = 20000;
 const MIN_REQUEST_INTERVAL = (60 * 1000) / 250; // 240ms between requests (matching RealDebrid)
 
 // Global rate limiter for all AllDebrid API requests
