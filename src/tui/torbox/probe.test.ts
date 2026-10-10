@@ -69,6 +69,31 @@ describe('parseCheckCached', () => {
 		).toBe(0);
 	});
 
+	it('keys on the object key when the entry omits its own hash copy', () => {
+		// Found by running the client against a stub that returned the documented
+		// object shape without the redundant `hash` field. The key is what was
+		// looked up, so it is authoritative.
+		const result = parseCheckCached({
+			success: true,
+			data: { abc: { files: [{ id: 1, name: 'a.mkv', size: 10 }] } },
+		});
+		expect([...result.cached]).toEqual(['abc']);
+		expect(result.files.has('abc')).toBe(true);
+	});
+
+	it('trusts the key over a disagreeing copy on the entry', () => {
+		const result = parseCheckCached({
+			success: true,
+			data: { abc: { hash: 'stale', files: [] } },
+		});
+		expect([...result.cached]).toEqual(['abc']);
+	});
+
+	it('still reads the hash off an entry in the array shape', () => {
+		const result = parseCheckCached({ success: true, data: [{ hash: 'XYZ', files: [] }] });
+		expect([...result.cached]).toEqual(['xyz']);
+	});
+
 	it('lowercases the hash it keys on', () => {
 		const upper = SPIDERMAN_HASH.toUpperCase();
 		const result = parseCheckCached({

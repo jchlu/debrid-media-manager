@@ -14,6 +14,7 @@ import { checkTorBoxKey } from '@/tui/torbox/key';
 
 /** Config or usage problems exit 2, matching the convention that 0 is success
  *  and 1 is "something ran and failed". A missing key is not a crash. */
+const EXIT_OK = 0;
 const EXIT_USAGE = 2;
 const EXIT_FAILED = 1;
 
@@ -72,11 +73,12 @@ async function main(): Promise<number> {
 			const { dump } = await import('@/tui/dump');
 			return await dump(config, args.query, args.season);
 		}
-		// Slice 4. The UI lands after the read path and the provider logic, so
-		// that there is no way to spend Torbox points while the grid is being
-		// debugged over SSH.
-		process.stderr.write('The interactive UI is not implemented yet.\n');
-		return EXIT_FAILED;
+		// The interactive path. It takes the terminal, so it is mounted last and
+		// its return value is the process exit code rather than a number.
+		const config = loadConfig({ baseUrl: args.baseUrl });
+		const { mountUi } = await import('@/tui/ui/mount');
+		mountUi(config, args.query);
+		return EXIT_OK;
 	} catch (error) {
 		if (error instanceof ConfigError) {
 			process.stderr.write(`${error.message}\n`);

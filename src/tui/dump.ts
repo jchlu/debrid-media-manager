@@ -120,10 +120,6 @@ export async function dump(config: Config, query: string, seasonNum?: number): P
 			seasonNum !== undefined && title.type === 'show'
 				? await releases.season(title.imdbid, seasonNum)
 				: await releases.movie(title.imdbid);
-		if (result.state === 'not-scraped') {
-			out('  not scraped yet.');
-			return 0;
-		}
 		rows = result.releases;
 		out(`  ${rows.length} release(s).`);
 		for (const release of rows.slice(0, 20)) {

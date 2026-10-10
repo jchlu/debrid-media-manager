@@ -68,9 +68,11 @@ const toProbeFile = (raw: RawFile): ProbeFile => ({
  * one format is not a guarantee of getting it, so both are read — the same
  * tolerance `utils/torboxCache.ts:52-54` applies.
  */
-function readEntries(data: unknown): RawEntry[] {
-	if (Array.isArray(data)) return data as RawEntry[];
-	if (typeof data === 'object' && data !== null) return Object.values(data) as RawEntry[];
+function readEntries(data: unknown): [string | undefined, RawEntry][] {
+	if (Array.isArray(data)) return (data as RawEntry[]).map((entry) => [undefined, entry]);
+	if (typeof data === 'object' && data !== null) {
+		return Object.entries(data) as [string, RawEntry][];
+	}
 	return [];
 }
 
@@ -78,8 +80,14 @@ export function parseCheckCached(body: unknown): ProbeResult {
 	const cached = new Set<string>();
 	const files = new Map<string, ProbeFile[]>();
 	const envelope = body as { data?: unknown; success?: unknown };
-	for (const entry of readEntries(envelope?.data)) {
-		const hash = typeof entry?.hash === 'string' ? entry.hash.toLowerCase() : undefined;
+	for (const [key, entry] of readEntries(envelope?.data)) {
+		// In the object-keyed shape the key *is* the infohash; `hash` on the entry
+		// is a redundant copy. Preferring the key means a response that omits the
+		// copy still resolves — and a key that disagrees with a stale copy wins,
+		// since the key is what was looked up.
+		const fromKey = typeof key === 'string' ? key.toLowerCase() : '';
+		const fromEntry = typeof entry?.hash === 'string' ? entry.hash.toLowerCase() : '';
+		const hash = fromKey || fromEntry;
 		if (!hash) continue;
 		cached.add(hash);
 		const listing = Array.isArray(entry.files) ? (entry.files as RawFile[]) : [];

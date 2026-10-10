@@ -1,5 +1,5 @@
 import { createChallengeClient } from '@/tui/dmm/challenge';
-import { DmmError, dmmGet, readJson, type ScrapeStatus } from '@/tui/dmm/client';
+import { DmmError, dmmGet, readJson } from '@/tui/dmm/client';
 
 /**
  * The release grid, and the one rate limit in this client that is a real limit.
@@ -25,10 +25,16 @@ export type Release = {
 
 type ReleasesBody = { results?: unknown };
 
-export type ReleasesResult =
-	| { state: 'ok'; releases: Release[] }
-	/** The title is not in the scraped table yet. A state, not a failure. */
-	| { state: 'not-scraped'; status: ScrapeStatus };
+/**
+ * Releases for one title.
+ *
+ * A title that has not been scraped yet is a *state*, not a failure, and arrives
+ * as a 204 — which is thrown as a `DmmError` of kind `not-scraped` rather than
+ * returned. An earlier shape returned it as a `{ state: 'not-scraped' }` variant
+ * that the code below never actually produced, so the union had an unreachable
+ * arm and every caller had to narrow for a case that could not occur.
+ */
+export type ReleasesResult = { releases: Release[] };
 
 function isRelease(value: unknown): value is Release {
 	if (typeof value !== 'object' || value === null) return false;
@@ -111,7 +117,7 @@ async function fetchReleases(baseUrl: string, path: string): Promise<ReleasesRes
 	if (!res.ok) {
 		throw new DmmError('server', `DMM answered ${res.status} for ${path}.`);
 	}
-	return { state: 'ok', releases: normaliseReleases(await readJson<ReleasesBody>(res, baseUrl)) };
+	return { releases: normaliseReleases(await readJson<ReleasesBody>(res, baseUrl)) };
 }
 
 export function createReleasesClient(

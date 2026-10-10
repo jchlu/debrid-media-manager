@@ -1,0 +1,12 @@
+{
+	"type": "module",
+	"_comment": [
+		"Marks src/tui as ESM, and nothing else.",
+		"Ink's layout engine (yoga-layout) is ESM-only and uses top-level await,",
+		"which cannot be transpiled to CommonJS. This package is CommonJS for Next,",
+		"so without this marker tsx tries to down-level yoga-layout and the UI fails",
+		"to start with 'Top-level await is currently not supported with the cjs output",
+		"format'. Scoping the marker to this directory keeps the web app CommonJS.",
+		"Next never reads it: it only scans src/pages and src/app for routes."
+	]
+}

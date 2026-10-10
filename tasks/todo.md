@@ -213,26 +213,26 @@ listing), `tb-checkcached-batch.json`, `tb-checkcached-uncached.json`,
 
 ## Slice 4 — Table and navigation
 
-- [ ] **Task: `logic/table.ts` — the pure renderer**
+- [x] **Task: `logic/table.ts` — the pure renderer**
     - Acceptance: given rows, width, selection and scroll, returns exact line buffers. Truncates
       titles from the left, degrades columns below 60, measures unicode width, and marks the
       selected row with a marker as well as reverse video.
     - Verify: `src/tui/logic/table.test.ts` with exact expected output, including a CJK title.
     - Files: `src/tui/logic/table.ts`, `src/tui/logic/table.test.ts`
 
-- [ ] **Task: `ui/terminal.ts` — raw mode, alt screen, restoration**
+- [x] **Task: `ui/terminal.ts` — raw mode, alt screen, restoration**
     - Acceptance: restores on normal exit, `SIGINT`, `SIGTERM`, and uncaught exception; re-reads
       width on `SIGWINCH`.
     - Verify: `src/tui/ui/terminal.test.ts`.
     - Files: `src/tui/ui/terminal.ts`, `src/tui/ui/terminal.test.ts`
 
-- [ ] **Task: `ui/theme.ts` and `ui/Footer.tsx`**
+- [x] **Task: `ui/theme.ts` and `ui/Footer.tsx`**
     - Acceptance: colour degrades on a 16-colour or `dumb` terminal; nothing is conveyed by
       colour alone. Footer shows the filter line, probe progress, and the key legend.
     - Verify: `src/tui/ui/theme.test.ts`; rest is visual.
     - Files: `src/tui/ui/theme.ts`, `src/tui/ui/Footer.tsx`
 
-- [ ] **Task: `ui/SearchScreen.tsx`, `ui/GridScreen.tsx`, `ui/App.tsx`**
+- [x] **Task: `ui/SearchScreen.tsx`, `ui/GridScreen.tsx`, `ui/App.tsx`**
     - Acceptance: search → pick → grid works; grid shows `INSTANT` / `DL` / `ARCHIVE` and sorts
       cached-first via the reused `sortByBiggest`; `a` is inert and says so.
     - Verify: `npm run typecheck && npm run test`, then **you** run it in `tmux` over SSH at 120
@@ -240,6 +240,38 @@ listing), `tb-checkcached-batch.json`, `tb-checkcached-uncached.json`,
     - Files: `src/tui/ui/*.tsx`
 
 ---
+
+### Slice 4 notes
+
+- **`src/tui/package.json` marks only this directory as ESM.** Ink's layout engine
+  (`yoga-layout`) is ESM-only and uses top-level await, which cannot be
+  transpiled to CommonJS — so the UI failed to start with "Top-level await is
+  currently not supported with the cjs output format". Scoping the marker to
+  `src/tui/` keeps the web app CommonJS. Next never reads it: it only scans
+  `src/pages` and `src/app` for routes.
+- **`tsconfig.json` moved from `moduleResolution: node` to `bundler`.** Ink 8
+  exposes its types through `exports`, which node10 resolution cannot read. Checked
+  the blast radius before changing it: `tsc --moduleResolution bundler` produced
+  zero errors outside `src/tui/`, and `npm run build` afterwards produced a
+  byte-identical shared chunk hash (`framework-218d60229010e026.js`, 403 kB).
+- **Enter did nothing until results existed.** It only opened a selected title, so
+  on a fresh screen — the only state a user starts in — it looked like a dead key.
+  It now searches when there is nothing to open.
+- **The picker said "nothing found" while the user was still typing.** It now waits
+  for a search to have actually run.
+- **A not-yet-scraped title now lands on the grid, not the picker**, so the keys
+  and the retry are visible. It was a grid state all along.
+- **`parseCheckCached` now keys on the object key, not the entry's `hash` copy.**
+  Found by running the client against a stub: a response carrying the documented
+  object shape without the redundant `hash` field resolved to zero cached rows,
+  because the key is what was looked up and is authoritative.
+- **A test asserting Node's `uncaughtException` wiring was removed.** Under jsdom
+  the listener count belongs to vitest's own handlers and says nothing about this
+  module. Restore-once-on-every-path is covered with injected handlers instead.
+
+Verified in a real pty at 120x30, against stub providers: search screen, grid with
+the selection marker at column 0, `u` revealing uncached (5 of 6), `z` revealing the
+archive (6 of 6), and the shell prompt returning afterwards.
 
 ## Slice 5 — The add path
 
