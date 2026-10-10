@@ -2,9 +2,13 @@ import type { Config } from '@/tui/config';
 import { episodeLabel, expectedEpisodes, fetchMovieInfo, fetchShowInfo } from '@/tui/dmm/info';
 import { createReleasesClient, type Release } from '@/tui/dmm/releases';
 import { asImdbId, searchTitles, type Title } from '@/tui/dmm/titles';
-import { visibleRows } from '@/tui/logic/normalise';
+import { decideAdd } from '@/tui/logic/addRequest';
+import { toGridRows, visibleRows } from '@/tui/logic/normalise';
 import type { GridRow } from '@/tui/logic/types';
-import { probeTorBox } from '@/tui/torbox/probe';
+import { addTorrent, pacedAdd } from '@/tui/torbox/add';
+import { probeTorBox, type ProbeFile } from '@/tui/torbox/probe';
+import ConfirmScreen from '@/tui/ui/ConfirmScreen';
+import FileListModal from '@/tui/ui/FileListModal';
 import Footer from '@/tui/ui/Footer';
 import GridScreen from '@/tui/ui/GridScreen';
 import SearchScreen from '@/tui/ui/SearchScreen';
@@ -51,6 +55,15 @@ export default function App({ config, initialQuery, onQuit }: AppProps) {
 		showUncached: config.showUncached,
 		showArchiveOnly: config.showArchiveOnly,
 	});
+
+	/** File listings from the last probe, for the file-list modal. */
+	const [probeFiles, setProbeFiles] = useState<Map<string, ProbeFile[]>>(new Map());
+	/** Rows being added right now, so a second `a` cannot double-add. */
+	const [adding, setAdding] = useState<Set<string>>(new Set());
+	/** The row a confirmation is pending for. */
+	const [confirming, setConfirming] = useState<GridRow | null>(null);
+	/** The row whose file list is open. */
+	const [viewingFiles, setViewingFiles] = useState<GridRow | null>(null);
 
 	const releases = useMemo(() => createReleasesClient(config.dmmBaseUrl), [config.dmmBaseUrl]);
 
@@ -100,8 +113,8 @@ export default function App({ config, initialQuery, onQuit }: AppProps) {
 					: { cached: new Set<string>(), unknown: new Set<string>(), files: new Map() };
 				setUnknownCount(probe.unknown.size);
 
-				const { toGridRows } = await import('@/tui/logic/normalise');
 				setAllRows(toGridRows(rows, probe));
+				setProbeFiles(probe.files);
 				setSelected(0);
 
 				if (title.type === 'show') {
@@ -186,6 +199,79 @@ export default function App({ config, initialQuery, onQuit }: AppProps) {
 
 	const rows = useMemo(() => visibleRows(allRows, guards), [allRows, guards]);
 
+	/** Marks one row's `added` flag without disturbing the rest of the list. */
+	const markAdded = useCallback((hash: string, added: boolean) => {
+		setAllRows((prev) => prev.map((r) => (r.hash === hash ? { ...r, added } : r)));
+	}, []);
+
+	const performAdd = useCallback(
+		async (row: GridRow) => {
+			setAdding((prev) => new Set(prev).add(row.hash));
+			try {
+				// Paced: Torbox refuses a burst, and two adds landing together
+				// would both be refused rather than one queued behind the other.
+				const outcome = await pacedAdd(() =>
+					addTorrent(config.torboxApiKey, row.hash, {
+						apiBase: config.torboxApiBase,
+						verify: config.verifyAdds,
+					})
+				);
+				if (outcome.ok) {
+					markAdded(row.hash, true);
+					setStatus({
+						text:
+							outcome.verificationWarning ??
+							`Added to Torbox${outcome.queued ? ' (queued)' : ''}.`,
+						kind: outcome.verificationWarning ? 'warn' : 'info',
+					});
+				} else {
+					setStatus({ text: outcome.message, kind: 'error' });
+				}
+			} catch (error) {
+				setStatus({
+					text: error instanceof Error ? error.message : String(error),
+					kind: 'error',
+				});
+			} finally {
+				setAdding((prev) => {
+					const next = new Set(prev);
+					next.delete(row.hash);
+					return next;
+				});
+			}
+		},
+		[config.torboxApiBase, config.torboxApiKey, config.verifyAdds, markAdded]
+	);
+
+	/**
+	 * What `a` does on a given row.
+	 *
+	 * The guards are consulted here rather than assumed from what is on screen, so
+	 * that a row revealed by a toggle is still refused when the toggle is off —
+	 * and an archive stays refused even when archives are shown, because adding one
+	 * yields something to unpack.
+	 */
+	/**
+	 * Applies `decideAdd`. All the judgement about what `a` means lives in that
+	 * pure function; this only turns its answer into a screen or a message.
+	 */
+	const requestAdd = useCallback(
+		(row: GridRow | undefined) => {
+			const decision = decideAdd(row, guards, adding);
+			switch (decision.action) {
+				case 'add':
+					if (row) void performAdd(row);
+					return;
+				case 'confirm':
+					if (row) setConfirming(row);
+					return;
+				case 'refuse':
+					setStatus({ text: decision.message, kind: 'warn' });
+			}
+		},
+		[adding, guards, performAdd]
+	);
+
 	const changeSeason = useCallback(
 		(delta: number) => {
 			if (!seasons.length || season === undefined) return;
@@ -229,6 +315,36 @@ export default function App({ config, initialQuery, onQuit }: AppProps) {
 		);
 	}
 
+	if (viewingFiles) {
+		return (
+			<Box flexDirection="column">
+				<FileListModal
+					colour={colour}
+					files={probeFiles.get(viewingFiles.hash) ?? []}
+					width={terminalWidth}
+					onClose={() => setViewingFiles(null)}
+				/>
+			</Box>
+		);
+	}
+
+	if (confirming) {
+		return (
+			<Box flexDirection="column">
+				<ConfirmScreen
+					colour={colour}
+					row={confirming}
+					onConfirm={() => {
+						const row = confirming;
+						setConfirming(null);
+						void performAdd(row);
+					}}
+					onCancel={() => setConfirming(null)}
+				/>
+			</Box>
+		);
+	}
+
 	return (
 		<Box flexDirection="column">
 			<GridScreen
@@ -238,7 +354,13 @@ export default function App({ config, initialQuery, onQuit }: AppProps) {
 				seasons={seasons}
 				rows={rows}
 				selected={Math.min(selected, Math.max(0, rows.length - 1))}
-				onSelect={setSelected}
+				onSelect={(index) => {
+					setSelected(index);
+					// "Added to Torbox." belongs to the row it describes. Left up
+					// after a move it reads as a claim about whatever is now
+					// selected, which is a different release.
+					setStatus(NO_STATUS);
+				}}
 				width={terminalWidth}
 				height={terminalHeight}
 				expectedEpisodes={expected}
@@ -247,17 +369,21 @@ export default function App({ config, initialQuery, onQuit }: AppProps) {
 					setScreen('search');
 					setStatus(NO_STATUS);
 				}}
-				onToggleUncached={() => setGuards((g) => ({ ...g, showUncached: !g.showUncached }))}
-				onToggleArchives={() =>
-					setGuards((g) => ({ ...g, showArchiveOnly: !g.showArchiveOnly }))
-				}
+				onToggleUncached={() => {
+					setGuards((g) => ({ ...g, showUncached: !g.showUncached }));
+					setStatus(NO_STATUS);
+				}}
+				onToggleArchives={() => {
+					setGuards((g) => ({ ...g, showArchiveOnly: !g.showArchiveOnly }));
+					setStatus(NO_STATUS);
+				}}
 				onSeason={changeSeason}
-				onAdd={() =>
-					setStatus({
-						text: 'Adding is not wired up yet — it arrives in the next slice.',
-						kind: 'info',
-					})
-				}
+				onAdd={() => requestAdd(rows[Math.min(selected, Math.max(0, rows.length - 1))])}
+				adding={adding}
+				onShowFiles={() => {
+					const row = rows[Math.min(selected, Math.max(0, rows.length - 1))];
+					if (row) setViewingFiles(row);
+				}}
 				onQuit={() => {
 					onQuit();
 					exit();

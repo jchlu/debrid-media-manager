@@ -28,8 +28,10 @@ export type GridScreenProps = {
 	onToggleUncached: () => void;
 	onToggleArchives: () => void;
 	onSeason: (delta: number) => void;
-	/** Inert until slice 5; rendered so the key is discoverable. */
 	onAdd: () => void;
+	onShowFiles: () => void;
+	/** Rows mid-add, so they read as in-flight rather than simply selectable. */
+	adding: Set<string>;
 	onQuit: () => void;
 };
 
@@ -51,6 +53,8 @@ export default function GridScreen(props: GridScreenProps) {
 		onToggleArchives,
 		onSeason,
 		onAdd,
+		onShowFiles,
+		adding,
 		onQuit,
 	} = props;
 
@@ -69,6 +73,7 @@ export default function GridScreen(props: GridScreenProps) {
 		if (input === 'u') return onToggleUncached();
 		if (input === 'z') return onToggleArchives();
 		if (input === 'a') return onAdd();
+		if (key.return) return onShowFiles();
 		if (input === '<') return onSeason(-1);
 		if (input === '>') return onSeason(1);
 	});
@@ -111,7 +116,9 @@ export default function GridScreen(props: GridScreenProps) {
 				{season !== undefined ? (
 					<Text color={colour.dim}>{`  season ${season}`}</Text>
 				) : null}
-				<Text color={colour.dim}>{`  ${selected + 1} of ${rows.length}`}</Text>
+				<Text
+					color={colour.dim}
+				>{`  ${Math.min(selected + 1, rows.length)} of ${rows.length}`}</Text>
 				<Text color={colour.dim}>{seasons?.length ? '  < > season' : ''}</Text>
 			</Box>
 
