@@ -1,3 +1,6 @@
+import fs from 'node:fs';
+import os from 'node:os';
+
 /**
  * Taking the terminal, and giving it back.
  *
@@ -23,12 +26,34 @@ export type Terminal = {
 
 export type TerminalDeps = {
 	write?: (chunk: string) => void;
+	/**
+	 * How restoration reaches the terminal.
+	 *
+	 * Defaults to a synchronous write to fd 1, not to `write`. `process.stdout` is
+	 * buffered when stdout is a pipe, and `process.exit` does not flush it — so a
+	 * process that dies by signal can finish having restored *nothing*, which is
+	 * the one case restoration exists for. A synchronous write is on the fd before
+	 * the handler returns and cannot be lost to a buffer that never drains.
+	 */
+	writeSync?: (chunk: string) => void;
 	signals?: NodeJS.Signals[];
 	onSignal?: (handler: () => void) => () => void;
 	onUncaught?: (handler: (error: unknown) => void) => () => void;
 };
 
 const defaultWrite = (chunk: string) => process.stdout.write(chunk);
+
+const defaultSyncWrite = (chunk: string) => {
+	try {
+		fs.writeSync(1, chunk);
+	} catch {
+		// The descriptor is gone. There is no terminal left to hand back, and
+		// throwing here would replace a clean exit with a stack trace.
+	}
+};
+
+/** 128 + signum, which is how a shell reports a process killed by a signal. */
+const exitCodeFor = (signal: NodeJS.Signals): number => 128 + (os.constants.signals[signal] ?? 0);
 
 /**
  * Puts the terminal on the alternate screen and guarantees it comes back.
@@ -37,9 +62,20 @@ const defaultWrite = (chunk: string) => process.stdout.write(chunk);
  * Restoration is guarded by a flag rather than by try/catch, because the paths
  * that most often fail are the signal handlers, and a second restore is harmless
  * while a missed one is not.
+ *
+ * Both default branches are *invoked* immediately — they register the real
+ * `process` listener and hand back its unsubscriber. Written as a bare arrow they
+ * merely allocated a factory that nothing ever called, which left the module
+ * registering no signal and no uncaught-exception handler at all: every caller
+ * that injected its own hooks saw the working branch and never noticed. The
+ * subprocess test is the only thing that could see it, because it is the only one
+ * that runs the default path against a real signal.
  */
 export function takeTerminal(deps: TerminalDeps = {}): Terminal {
 	const write = deps.write ?? defaultWrite;
+	// Falls back to `write` before the real default, so an injected `write` still
+	// captures restoration and the unit tests keep asserting on the same writer.
+	const writeSync = deps.writeSync ?? deps.write ?? defaultSyncWrite;
 	const state = { active: false };
 	let restored = false;
 
@@ -49,8 +85,8 @@ export function takeTerminal(deps: TerminalDeps = {}): Terminal {
 		if (!state.active) return;
 		// Reverse order: raw mode is put back by Ink, then the cursor, then the
 		// alternate screen — so the shell redraws into a sane terminal.
-		write(SHOW_CURSOR);
-		write(LEAVE_ALT_SCREEN);
+		writeSync(SHOW_CURSOR);
+		writeSync(LEAVE_ALT_SCREEN);
 		state.active = false;
 	};
 
@@ -59,22 +95,32 @@ export function takeTerminal(deps: TerminalDeps = {}): Terminal {
 	state.active = true;
 
 	const unsubscribes: (() => void)[] = [];
-	const register = (handler: () => void) => {
+	/**
+	 * Listens for the signal it is given.
+	 *
+	 * This used to ignore its argument and always register `SIGINT`, so the loop
+	 * over three signals installed three SIGINT listeners and none for SIGTERM or
+	 * SIGHUP — and those two then took Node's default, which is death with no
+	 * restoration at all. A `kill`, a stopped service or a dropped SSH connection
+	 * is exactly the case this module promises to survive, and it survived none of
+	 * them.
+	 */
+	const register = (signal: NodeJS.Signals, handler: () => void) => {
 		const off =
 			deps.onSignal?.(handler) ??
 			(() => {
 				const listener = () => {
 					restore();
-					process.exit(130); // 128 + SIGINT, the shell's convention
+					process.exit(exitCodeFor(signal));
 				};
-				process.once('SIGINT', listener);
-				return () => process.removeListener('SIGINT', listener);
-			});
+				process.once(signal, listener);
+				return () => process.removeListener(signal, listener);
+			})();
 		unsubscribes.push(off);
 	};
 
 	for (const signal of deps.signals ?? (['SIGINT', 'SIGTERM', 'SIGHUP'] as NodeJS.Signals[])) {
-		register(() => {
+		register(signal, () => {
 			restore();
 			process.exit(0);
 		});
@@ -98,7 +144,7 @@ export function takeTerminal(deps: TerminalDeps = {}): Terminal {
 			};
 			process.on('uncaughtException', listener);
 			return () => process.removeListener('uncaughtException', listener);
-		});
+		})();
 	unsubscribes.push(offUncaught);
 
 	return {

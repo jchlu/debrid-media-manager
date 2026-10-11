@@ -10,7 +10,7 @@
 		"dev": "next dev",
 		"build": "next build",
 		"start": "next start",
-		"tui": "tsx --tsconfig src/tui/tsconfig.json src/tui/index.tsx",
+		"tui": "TSX_TSCONFIG_PATH=src/tui/tsconfig.json node --import tsx src/tui/index.tsx",
 		"tui:check": "tsx --tsconfig src/tui/tsconfig.json src/tui/index.tsx --check-config",
 		"lint": "next lint",
 		"format": "prettier --write 'src/**/*.{js,jsx,ts,tsx,json,md}'",
