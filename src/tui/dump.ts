@@ -133,7 +133,14 @@ export async function dump(config: Config, query: string, seasonNum?: number): P
 	} catch (error) {
 		const message = error instanceof Error ? error.message : String(error);
 		if (/not scraped/.test(message)) {
-			out('  not scraped yet — a scrape was queued. Re-run in a minute or two.');
+			// Says the same thing the grid says, and for the same reason: a
+			// `requested:` key was written, but only an instance that drains it will
+			// ever answer. Telling someone to wait is telling them to wait for
+			// nothing.
+			out(
+				'  no releases stored for this title. DMM recorded a scrape request, but nothing ' +
+					'will read it unless this instance runs a scraper or an indexer addon.'
+			);
 			return 0;
 		}
 		err(`  FAILED — ${message}`);
