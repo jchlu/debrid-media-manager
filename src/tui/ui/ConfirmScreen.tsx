@@ -1,3 +1,4 @@
+import { confirmSummary } from '@/tui/logic/addRequest';
 import type { GridRow } from '@/tui/logic/types';
 import type { Palette } from '@/tui/ui/theme';
 import { Box, Text, useInput } from 'ink';
@@ -46,9 +47,7 @@ export default function ConfirmScreen({ colour, row, onConfirm, onCancel }: Conf
 
 			<Box marginTop={1} flexDirection="column">
 				<Text>{row.title}</Text>
-				<Text color={colour.dim}>
-					{`${row.videoCount} video · ${row.totalSizeMb.toFixed(2)} GB · ${row.hash.slice(0, 12)}…`}
-				</Text>
+				<Text color={colour.dim}>{confirmSummary(row)}</Text>
 			</Box>
 
 			<Box marginTop={1}>

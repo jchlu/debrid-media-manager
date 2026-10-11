@@ -1,4 +1,5 @@
-import { decideAdd } from '@/tui/logic/addRequest';
+import { confirmSummary, decideAdd } from '@/tui/logic/addRequest';
+import { formatSize } from '@/tui/logic/table';
 import type { GridRow } from '@/tui/logic/types';
 import { describe, expect, it } from 'vitest';
 
@@ -121,5 +122,33 @@ describe('decideAdd', () => {
 		// The one case that is neither: it asks, and that is the point of asking.
 		const uncached = row({ state: 'uncached', reachable: false });
 		expect(decideAdd(uncached, ALL_ON, NONE)).toEqual({ action: 'confirm' });
+	});
+});
+
+describe('confirmSummary', () => {
+	it('states a season pack in GB, not in MB wearing a GB label', () => {
+		// The regression this whole block exists for: the grid said 58.59 GB and
+		// the dialog said 62000.00 GB for the same row.
+		expect(confirmSummary(row({ totalSizeMb: 60000 }))).toContain('58.59 GB');
+		expect(confirmSummary(row({ totalSizeMb: 60000 }))).not.toContain('60000');
+	});
+
+	it('agrees with the grid about the same row', () => {
+		const season = row({ totalSizeMb: 62000, biggestVideoMb: 60000 });
+		expect(confirmSummary(season)).toContain(formatSize(season.totalSizeMb));
+	});
+
+	it('keeps MB for a release too small to be worth converting', () => {
+		expect(confirmSummary(row({ totalSizeMb: 700 }))).toContain('700 MB');
+	});
+
+	it('shows the video count only where Torbox actually listed files', () => {
+		expect(confirmSummary(row({ state: 'instant', videoCount: 12 }))).toContain('12 video');
+		// Uncached: zero because nothing was counted, not because there is no video.
+		expect(confirmSummary(row({ state: 'uncached', videoCount: 0 }))).not.toContain('video');
+	});
+
+	it('truncates the hash to the first twelve characters', () => {
+		expect(confirmSummary(row())).toContain(`${'a'.repeat(12)}…`);
 	});
 });

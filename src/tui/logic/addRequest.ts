@@ -1,4 +1,5 @@
 import { mayAdd, type GuardOptions } from '@/tui/logic/normalise';
+import { formatSize } from '@/tui/logic/table';
 import type { GridRow } from '@/tui/logic/types';
 
 /**
@@ -73,4 +74,21 @@ export function decideAdd(
 	// keystroke on every free action trains people to press through dialogs, which
 	// is the opposite of what the uncached dialog is for.
 	return row.state === 'instant' ? { action: 'add' } : { action: 'confirm' };
+}
+
+/**
+ * The one line of detail on the confirmation screen.
+ *
+ * Its job is to restate the row correctly at the moment someone is about to spend
+ * Torbox points, so it borrows `formatSize` rather than formatting a number here.
+ * Printing MB with a "GB" label — which this did once — overstates a 60 GB season
+ * pack as 62000 GB, and a dialog that overstates the cost by three orders of
+ * magnitude is one people learn to dismiss and press `y` through.
+ */
+export function confirmSummary(row: GridRow): string {
+	// Torbox holds no listing for an uncached release, so its video count is zero
+	// because nothing was counted — not because the release has no video. Saying
+	// "0 video" there reads as a verdict about the release that nobody measured.
+	const videos = row.state === 'instant' ? `${row.videoCount} video · ` : '';
+	return `${videos}${formatSize(row.totalSizeMb)} · ${row.hash.slice(0, 12)}…`;
 }
