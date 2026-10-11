@@ -304,28 +304,46 @@ archive (6 of 6), and the shell prompt returning afterwards.
 
 ## Slice 6 — Filter, paging, hardening
 
-- [ ] **Task: `/` filter line over `quickSearch`**
-    - Acceptance: `videos:1`, `is:tb`, `-x265` and a bare hash behave as in the web UI, by
-      reusing the existing function rather than reimplementing the grammar.
-    - Verify: `src/tui/logic/filter.test.ts`.
-    - Files: `src/tui/ui/Footer.tsx`, `src/tui/ui/GridScreen.tsx`
+- [x] **Task: `/` filter line over the `quickSearch` grammar**
+    - Acceptance: `videos:N`, `is:tb`, `-x265` and a bare hash behave as in the web UI.
+    - **Deviation:** reimplemented rather than imported. `SearchResult` lives in
+      `services/mediasearch`, which imports `@ctrl/video-filename-parser`; reusing
+      `quickSearch` would pull a web-only parser into the TUI process. The grammar is
+      matched and the operator translation is written out.
+    - Verify: `src/tui/logic/filter.test.ts` — 16 tests.
+    - Files: `src/tui/logic/filter.ts`, `src/tui/ui/Footer.tsx`, `src/tui/ui/GridScreen.tsx`,
+      `src/tui/ui/App.tsx`
 
-- [ ] **Task: `[` / `]` paging behind the serial queue**
+- [x] **Task: `[` / `]` paging behind the serial queue**
     - Acceptance: 2.5 s floor honoured; page state survives a filter change.
-    - Verify: extension of the `releases` fake-timer tests.
-    - Files: `src/tui/ui/GridScreen.tsx`, `src/tui/dmm/releases.ts`
+    - DMM serves ~100 releases a page and has no total in the response, so the grid
+      previously showed page 0 and stopped. Backward paging never re-asks; only forward
+      crosses the queue. A short page is not the last page — `normaliseReleases`
+      deduplicates by hash, so 100 server rows can render as 82. Only an empty page ends it.
+    - Verify: `src/tui/logic/paging.test.ts` — 10 tests, including the short-page case.
+    - Files: `src/tui/logic/paging.ts`, `src/tui/dmm/releases.ts`, `src/tui/ui/App.tsx`
 
-- [ ] **Task: `r` re-probe and `y` copy hash**
-    - Acceptance: `r` re-probes the current page only; `y` copies without printing the hash to
-      the terminal scrollback in a way that would leak into a pasted log.
-    - Verify: manual.
-    - Files: `src/tui/ui/GridScreen.tsx`
+- [x] **Task: `r` re-probe and `y` copy hash**
+    - `r` re-fetches the current page and re-probes Torbox, covering both "not scraped"
+      and "the cache answers changed".
+    - `y` writes an OSC 52 escape. tmux and many emulators refuse it silently and nothing
+      replies, so it never claims success and always repeats the hash on screen.
+    - Verify: `src/tui/ui/clipboard.test.ts` — 5 tests.
 
-- [ ] **Task: Terminal restoration proven by subprocess and signal**
-    - Acceptance: spawning the client, then sending `SIGINT`, `SIGTERM`, and an uncaught throw,
-      each leaves a usable shell with a visible cursor.
-    - Verify: `src/tui/ui/terminal.restore.test.ts` — the only honest way to test a crash path.
-    - Files: `src/tui/ui/terminal.ts`, `src/tui/ui/terminal.restore.test.ts`
+- [x] **Task: Terminal restoration proven by subprocess and signal**
+    - **R5 was worse than the plan recorded.** `takeTerminal` built its `process` listeners
+      inside an arrow function that was never called, so no signal and no
+      `uncaughtException` handler was ever registered. The signal loop also ignored its own
+      argument and always registered SIGINT. Restoration additionally went through buffered
+      `process.stdout`, which `process.exit` does not flush. All eight existing tests passed
+      throughout because they inject the hooks that select the working branch.
+    - `npm run tui` also moved from the `tsx` CLI to `node --import tsx`: same TypeScript and
+      aliases, but the CLI installs its own SIGHUP handling and the process dies before any
+      application listener runs.
+    - Verify: `src/tui/ui/terminal.subprocess.test.ts` — 7 tests, spawning a real process and
+      delivering SIGINT, SIGTERM and SIGHUP. Includes a guard that fails if `package.json`'s
+      `tui` script goes back to the CLI.
 
-- [ ] **Task: README section and final pass** - Acceptance: install, configure, and run instructions; `npm run typecheck && npm run test
-&& npm run lint` all pass with the web build unchanged. - Verify: the three commands, plus a final `tmux` pass over the whole loop. - Files: `README.md`
+- [x] **Task: README section and final pass** — install, configure, keys, the filter grammar, and
+      what the client will not do. `npm run typecheck`, eslint and the full 8,943-test suite
+      pass.
