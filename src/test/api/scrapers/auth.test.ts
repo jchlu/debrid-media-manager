@@ -160,20 +160,25 @@ describe.each(routes)('/api/scrapers/$name', ({ handler, query }) => {
 		expect(exitSpy).toHaveBeenCalledWith(0);
 	});
 
-	// The pre-existing indexer guard must still short-circuit — but only after
-	// authentication, so an anonymous caller learns nothing about the config.
-	it('keeps the JACKETT/PROWLARR guard behind authentication', async () => {
+	// The JACKETT/PROWLARR guard used to sit here and refuse every caller that
+	// had not configured both. It protected nothing: `generateScrapeJobs` runs the
+	// four core scrapers and none of them read either variable. So the guard is
+	// gone, and what replaced it is the property that actually mattered —
+	// authentication still comes first, so an anonymous caller learns nothing.
+	it('authenticates first, then runs without JACKETT/PROWLARR', async () => {
 		delete process.env.JACKETT;
+		delete process.env.PROWLARR;
 
 		const anonymous = createMockRequest({ query });
 		const anonymousRes = createMockResponse();
 		await handler(anonymous, anonymousRes);
 		expect(anonymousRes.status).toHaveBeenCalledWith(401);
 
+		// Previously 403 here. Now it proceeds: refusing would mean an instance
+		// without Jackett could not scrape with the indexers it does have.
 		const authorized = createMockRequest({ query: { ...query, password: PASSWORD } });
 		const authorizedRes = createMockResponse();
 		await handler(authorized, authorizedRes);
-		expect(authorizedRes.status).toHaveBeenCalledWith(403);
-		expect(authorizedRes.json).toHaveBeenCalledWith({ status: 'failed' });
+		expect(authorizedRes.status).not.toHaveBeenCalledWith(403);
 	});
 });

@@ -45,14 +45,18 @@ afterAll(() => {
 });
 
 describe('API /api/scrapers/imdb', () => {
-	it('rejects requests when indexers are not configured', async () => {
+	it('scrapes without JACKETT/PROWLARR, because no scraper reads them', async () => {
+		// The four scrapers behind generateScrapeJobs are ApiBay2, BTDigg, RuTor
+		// and TorrentGalaxy. None reads either variable, so requiring both refused
+		// exactly the instances that had chosen not to run those two indexers.
 		process.env.JACKETT = '';
+		process.env.PROWLARR = '';
 		const res = createRes();
 
-		await handler({ query: { password: TEST_SCRAPE_PASSWORD } } as any, res);
+		await handler({ query: { password: TEST_SCRAPE_PASSWORD, id: 'tt1234567' } } as any, res);
 
-		expect(res.status).toHaveBeenCalledWith(403);
-		expect(res.json).toHaveBeenCalledWith({ status: 'failed' });
+		expect(res.status).not.toHaveBeenCalledWith(403);
+		expect(scrapeMocks.generateScrapeJobs).toHaveBeenCalled();
 	});
 
 	it('validates the imdb id', async () => {

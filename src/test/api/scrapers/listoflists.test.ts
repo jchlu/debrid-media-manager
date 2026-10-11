@@ -69,26 +69,23 @@ afterAll(() => {
 });
 
 describe('API /api/scrapers/listoflists', () => {
-	it('returns 403 when env vars not set', async () => {
+	// No JACKETT/PROWLARR guard here: this route runs the same core scrapers
+	// as /api/scrapers/imdb and none of them read either variable.
+	it('runs without JACKETT/PROWLARR configured', async () => {
 		process.env.JACKETT = '';
 		process.env.PROWLARR = '';
-		const req = createMockRequest({ query: { password: TEST_SCRAPE_PASSWORD } });
+		const req = createMockRequest({
+			query: { password: TEST_SCRAPE_PASSWORD, search: 'anime' },
+		});
 		const res = createMockResponse();
+		scrapeInputMocks.ScrapeInput.mockImplementation(() => ({
+			byLists: vi.fn().mockReturnValue(makeAsyncIterator([{ listId: 'list-1' }])),
+			byListId: vi.fn().mockReturnValue(makeAsyncIterator(['tt1234567'])),
+		}));
 
 		await handler(req, res);
 
-		expect(res.status).toHaveBeenCalledWith(403);
-		expect(res.json).toHaveBeenCalledWith({ status: 'failed' });
-	});
-
-	it('returns 403 when only JACKETT is missing', async () => {
-		delete process.env.JACKETT;
-		const req = createMockRequest({ query: { password: TEST_SCRAPE_PASSWORD } });
-		const res = createMockResponse();
-
-		await handler(req, res);
-
-		expect(res.status).toHaveBeenCalledWith(403);
+		expect(res.status).not.toHaveBeenCalledWith(403);
 	});
 
 	it('returns 400 when search is missing', async () => {

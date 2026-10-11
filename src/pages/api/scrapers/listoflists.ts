@@ -11,10 +11,9 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
 		return;
 	}
 
-	if (!process.env.JACKETT || !process.env.PROWLARR) {
-		res.status(403).json({ status: 'failed' });
-		return;
-	}
+	// No JACKETT/PROWLARR gate: this route runs the same core scrapers as
+	// `/api/scrapers/imdb`, and none of them read either variable. See the note
+	// there. `authorizeScrapeRequest` above is the control that does real work.
 
 	const { search, rescrapeIfXDaysOld, skipMs, quantity } = req.query;
 

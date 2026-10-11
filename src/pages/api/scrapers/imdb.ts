@@ -9,10 +9,14 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
 		return;
 	}
 
-	if (!process.env.JACKETT || !process.env.PROWLARR) {
-		res.status(403).json({ status: 'failed' });
-		return;
-	}
+	// No JACKETT/PROWLARR gate here on purpose. The gate used to sit here and
+	// refused every caller that had not configured both, but nothing downstream
+	// reads either: `generateScrapeJobs` runs the four core scrapers (ApiBay2,
+	// BTDigg, RuTor, TorrentGalaxy) and none of them touch Jackett or Prowlarr.
+	// So it did not protect the indexers — it prevented an instance that had
+	// chosen not to run them from scraping with the ones it had.
+	//
+	// `authorizeScrapeRequest` above is the actual control, and it fails closed.
 
 	const { id, season, lastSeason, replaceOldScrape } = req.query;
 

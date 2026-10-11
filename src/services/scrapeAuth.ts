@@ -54,20 +54,20 @@ function presentedPassword(req: NextApiRequest): string | undefined {
  *
  * Writes the refusal itself and returns `false`; the caller returns immediately.
  */
-export function authorizeScrapeRequest(
+export function authorizeScrapeRequest<T extends ScrapeResponse>(
 	req: NextApiRequest,
-	res: NextApiResponse<ScrapeResponse>
+	res: NextApiResponse<T>
 ): boolean {
 	const expected = process.env.SCRAPE_API_PASSWORD;
 	if (!expected) {
 		console.error('SCRAPE_API_PASSWORD environment variable is not set');
-		res.status(500).json({ status: 'error', errorMessage: 'Server configuration error' });
+		res.status(500).json({ status: 'error', errorMessage: 'Server configuration error' } as T);
 		return false;
 	}
 
 	const provided = presentedPassword(req);
 	if (!provided || !timingSafeEquals(provided, expected)) {
-		res.status(401).json({ status: 'failed' });
+		res.status(401).json({ status: 'failed' } as T);
 		return false;
 	}
 

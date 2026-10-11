@@ -161,6 +161,36 @@ rows only. That is the measured number rather than one guessed from the name.
 - **It does not create releases.** It reads what DMM already has. An instance
   with no scraper behind it will keep answering "not scraped yet" forever.
 
+### Populating a self-hosted instance
+
+The client only reads what DMM already has. Opening a title with no releases
+records a scrape request, and on a self-hosted instance nothing used to answer
+those — production drains that queue from another host. Locally, schedule a drain:
+
+```bash
+* * * * * curl -fsS -H "x-scrape-password: $SCRAPE_API_PASSWORD" \
+    http://localhost:3000/api/scrapers/drain >/dev/null
+```
+
+One request per call, because the scrapers are slow and rate-limited. It uses
+DMM's own scrapers (ApiBay2, BTDigg, RuTor, TorrentGalaxy) — no external indexer
+service is involved, and neither `JACKETT` nor `PROWLARR` is required, because
+nothing behind `/api/scrapers/*` reads either.
+
+Scraping needs `MDBLIST_API_KEY` and `TMDB_API_KEY` for title metadata. Without
+them the scrape fails and the request is pushed to the back of the queue rather
+than retried forever.
+
+Check the queue is moving:
+
+```bash
+curl -s -H "x-scrape-password: $SCRAPE_API_PASSWORD" \
+  http://localhost:3000/api/scrapers/drain
+```
+
+`{"status":"idle"}` means empty, `{"status":"drained"}` means one title was
+scraped, `{"status":"cooldown"}` means the oldest request was tried recently.
+
 ## FAQ
 
 ### I just don't know where to start or why do I need this?
