@@ -32,6 +32,8 @@ export type GridScreenProps = {
 	onShowFiles: () => void;
 	/** Rows mid-add, so they read as in-flight rather than simply selectable. */
 	adding: Set<string>;
+	/** Re-run the search for this title. */
+	onRetry: () => void;
 	onQuit: () => void;
 };
 
@@ -55,6 +57,7 @@ export default function GridScreen(props: GridScreenProps) {
 		onAdd,
 		onShowFiles,
 		adding,
+		onRetry,
 		onQuit,
 	} = props;
 
@@ -70,6 +73,7 @@ export default function GridScreen(props: GridScreenProps) {
 		if (key.pageDown) return onSelect(Math.min(rows.length - 1, selected + (height - 3)));
 		if (key.home) return onSelect(0);
 		if (key.end) return onSelect(rows.length - 1);
+		if (input === 'r') return onRetry();
 		if (input === 'u') return onToggleUncached();
 		if (input === 'z') return onToggleArchives();
 		if (input === 'a') return onAdd();

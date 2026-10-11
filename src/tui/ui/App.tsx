@@ -45,6 +45,8 @@ export default function App({ config, initialQuery, onQuit }: AppProps) {
 	const [searched, setSearched] = useState(false);
 
 	const [gridTitle, setGridTitle] = useState('');
+	/** The title the grid is currently showing, so `r` can reload it. */
+	const [currentTitle, setCurrentTitle] = useState<Title | null>(null);
 	const [season, setSeason] = useState<number | undefined>(undefined);
 	const [seasons, setSeasons] = useState<number[]>([]);
 	const [allRows, setAllRows] = useState<GridRow[]>([]);
@@ -96,6 +98,7 @@ export default function App({ config, initialQuery, onQuit }: AppProps) {
 		async (title: Title, wantedSeason?: number) => {
 			setBusy(true);
 			setStatus(NO_STATUS);
+			setCurrentTitle(title);
 			try {
 				const rows: Release[] =
 					title.type === 'show' && wantedSeason !== undefined
@@ -155,8 +158,15 @@ export default function App({ config, initialQuery, onQuit }: AppProps) {
 					setSeasons([]);
 					setExpected(undefined);
 					setScreen('grid');
+					// Deliberately does not promise a result. A scrape request was
+					// recorded, but nothing drains that queue unless this DMM runs a
+					// scraper — a local instance with no scraper worker will answer
+					// exactly like this forever. Saying "queued" alone would send the
+					// user off waiting for something that is never coming.
 					setStatus({
-						text: 'DMM has not scraped this title yet — a scrape was queued. Press esc to go back.',
+						text:
+							'This DMM has no releases for that title yet. A scrape request was recorded, ' +
+							'but only an instance running a scraper will answer it. Press r to retry, esc to go back.',
 						kind: 'warn',
 					});
 				} else {
@@ -378,6 +388,9 @@ export default function App({ config, initialQuery, onQuit }: AppProps) {
 					setStatus(NO_STATUS);
 				}}
 				onSeason={changeSeason}
+				onRetry={() => {
+					if (currentTitle) void loadGrid(currentTitle, season);
+				}}
 				onAdd={() => requestAdd(rows[Math.min(selected, Math.max(0, rows.length - 1))])}
 				adding={adding}
 				onShowFiles={() => {
@@ -399,7 +412,7 @@ export default function App({ config, initialQuery, onQuit }: AppProps) {
 				status={status?.text ?? ''}
 				statusKind={status?.kind ?? 'info'}
 				keys={
-					`a add · u ${guards.showUncached ? 'hide' : 'show'} uncached · ` +
+					`a add · r retry · u ${guards.showUncached ? 'hide' : 'show'} uncached · ` +
 					`z ${guards.showArchiveOnly ? 'hide' : 'show'} archives · esc back · ctrl-c quit`
 				}
 			/>
