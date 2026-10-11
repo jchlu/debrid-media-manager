@@ -131,6 +131,21 @@ describe('loadConfig', () => {
 			);
 			expect(config.dmmBaseUrl).toBe('http://dmm:3000');
 		});
+
+		// `--dump` is how you find out whether an instance is answering at all,
+		// which is the question you have before you have an account to point at.
+		it('lets --dump run with no key, and still demands a base URL', () => {
+			const config = loadConfig(
+				{ requireTorboxKey: false },
+				deps({ env: { DMM_BASE_URL: 'http://dmm:3000' } })
+			);
+			expect(config.torboxApiKey).toBe('');
+			expect(config.dmmBaseUrl).toBe('http://dmm:3000');
+			// Opting out of the key does not opt out of everything else.
+			expect(() =>
+				loadConfig({ requireTorboxKey: false }, deps({ env: { TORBOX_API_KEY: 'k' } }))
+			).toThrow(/DMM_BASE_URL/);
+		});
 	});
 
 	describe('booleans', () => {

@@ -106,3 +106,45 @@ describe('USAGE', () => {
 		}
 	});
 });
+
+describe('--base-url reaches every mode that talks to DMM', () => {
+	const URL = 'https://debridmediamanager.com';
+
+	// The flag is documented as an override "for this run". It used to be parsed
+	// and then dropped, so `--dump --base-url X` silently read the config file
+	// instead — and neither diagnostic command could check the URL you passed.
+	it('survives alongside --dump', () => {
+		expect(parseArgs(['--dump', 'Blade Runner', '--base-url', URL])).toEqual({
+			kind: 'dump',
+			query: 'Blade Runner',
+			baseUrl: URL,
+		});
+	});
+
+	it('survives when it comes before --dump', () => {
+		expect(parseArgs(['--base-url', URL, '--dump', 'Dune'])).toMatchObject({
+			kind: 'dump',
+			baseUrl: URL,
+		});
+	});
+
+	it('survives alongside --check-config', () => {
+		expect(parseArgs(['--check-config', '--base-url', URL])).toEqual({
+			kind: 'check-config',
+			baseUrl: URL,
+		});
+	});
+
+	it('survives alongside --season', () => {
+		expect(parseArgs(['--base-url', URL, '--dump', 'Severance', '--season', '2'])).toEqual({
+			kind: 'dump',
+			query: 'Severance',
+			baseUrl: URL,
+			season: 2,
+		});
+	});
+
+	it('leaves baseUrl undefined when it was never passed', () => {
+		expect(parseArgs(['--dump', 'Dune'])).toMatchObject({ kind: 'dump', baseUrl: undefined });
+	});
+});

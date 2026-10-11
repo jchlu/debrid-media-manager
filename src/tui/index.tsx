@@ -66,10 +66,13 @@ async function main(): Promise<number> {
 
 	try {
 		if (args.kind === 'check-config') {
-			return await checkConfig({ baseUrl: undefined });
+			return await checkConfig({ baseUrl: args.baseUrl });
 		}
 		if (args.kind === 'dump') {
-			const config = loadConfig({ baseUrl: undefined });
+			// Read-only and keyless by design: its Torbox stage is skipped when there
+			// is nothing to probe, so demanding a key up front would block the one
+			// diagnostic that runs before an account exists.
+			const config = loadConfig({ baseUrl: args.baseUrl, requireTorboxKey: false });
 			const { dump } = await import('@/tui/dump');
 			return await dump(config, args.query, args.season);
 		}

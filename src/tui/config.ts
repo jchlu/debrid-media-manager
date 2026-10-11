@@ -165,7 +165,7 @@ const str = (value: unknown): string | undefined =>
 	typeof value === 'string' && value.trim() !== '' ? value.trim() : undefined;
 
 export function loadConfig(
-	overrides: { baseUrl?: string; apiKey?: string } = {},
+	overrides: { baseUrl?: string; apiKey?: string; requireTorboxKey?: boolean } = {},
 	deps: LoadConfigDeps = {}
 ): Config {
 	const d = defaultDeps(deps);
@@ -212,7 +212,11 @@ export function loadConfig(
 			`No DMM base URL. Set DMM_BASE_URL, or "dmmBaseUrl" in ${path}, or pass --base-url.`
 		);
 	}
-	if (!apiKeyRaw) {
+	// `--dump` opts out. Its Torbox stage is skipped whenever the release list is
+	// empty, so requiring the key here meant the command meant to answer "is this
+	// instance answering at all?" could not be run before the account was set up —
+	// which is the order in which you find out you need it.
+	if (!apiKeyRaw && overrides.requireTorboxKey !== false) {
 		throw new ConfigError(
 			`No Torbox API key. Set TORBOX_API_KEY, or "torboxApiKey" in ${path}. ` +
 				`The key is in your Torbox account settings; it is not the same as your login password.`
@@ -221,7 +225,8 @@ export function loadConfig(
 
 	return {
 		dmmBaseUrl: normaliseBaseUrl(baseUrlRaw, 'DMM base URL'),
-		torboxApiKey: apiKeyRaw,
+		// Empty only under `--dump`, which opted out of requiring one.
+		torboxApiKey: apiKeyRaw ?? '',
 		defaultFilter: filterRaw ?? DEFAULTS.defaultFilter,
 		showUncached: envFlag(
 			pick('DMM_TUI_SHOW_UNCACHED', 'showUncached') as string | undefined,

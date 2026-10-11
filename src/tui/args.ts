@@ -10,9 +10,9 @@
 
 export type ParsedArgs =
 	| { kind: 'help' }
-	| { kind: 'check-config' }
+	| { kind: 'check-config'; baseUrl?: string }
 	/** Runs the read pipeline and prints raw JSON. No UI, no writes. */
-	| { kind: 'dump'; query: string; season?: number }
+	| { kind: 'dump'; query: string; baseUrl?: string; season?: number }
 	| { kind: 'interactive'; baseUrl?: string; query?: string };
 
 /** A rejected command line. The message is printed verbatim, so it names the fix. */
@@ -105,11 +105,16 @@ export function parseArgs(argv: string[]): ParsedArgs {
 	}
 
 	if (mode === 'help') return { kind: 'help' };
-	if (mode === 'check-config') return { kind: 'check-config' };
+	// `--base-url` says "for this run", and these two are how you find out why a
+	// run went wrong. Dropping the override here left `--dump` and `--check-config`
+	// pointed at whatever the config file happened to say — so the one command that
+	// could tell you the URL you passed was the wrong one could not be used to test
+	// a URL.
+	if (mode === 'check-config') return { kind: 'check-config', baseUrl };
 	if (mode === 'dump') {
 		return season === undefined
-			? { kind: 'dump', query: dumpQuery! }
-			: { kind: 'dump', query: dumpQuery!, season };
+			? { kind: 'dump', query: dumpQuery!, baseUrl }
+			: { kind: 'dump', query: dumpQuery!, baseUrl, season };
 	}
 	return baseUrl || query ? { kind: 'interactive', baseUrl, query } : { kind: 'interactive' };
 }

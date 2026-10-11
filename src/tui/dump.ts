@@ -146,6 +146,13 @@ export async function dump(config: Config, query: string, seasonNum?: number): P
 	if (!rows.length) return 0;
 
 	out(headings.torbox);
+	// Probing with an empty key reports every row as `unknown`, which reads as
+	// "Torbox was asked and declined to answer" when in truth nothing was asked.
+	// That is the difference between a broken key and a missing one.
+	if (!config.torboxApiKey) {
+		out('  no Torbox key configured, so cache states were not probed.');
+		return 0;
+	}
 	out('  probing the Torbox cache…');
 	const probe = await probeTorBox(
 		config.torboxApiKey,
