@@ -1,4 +1,4 @@
-import { DEFAULT_COOLDOWN_MS, planDrain, requestedKey } from '@/scrapers/drainPlan';
+import { DEFAULT_COOLDOWN_MS, planDrain, requestedKey, stillQueued } from '@/scrapers/drainPlan';
 import { generateScrapeJobs } from '@/scrapers/scrapeJobs';
 import { repository as db } from '@/services/repository';
 import { authorizeScrapeRequest } from '@/services/scrapeAuth';
@@ -30,6 +30,10 @@ export type DrainResponse = {
 	retryInSeconds?: number;
 	errorMessage?: string;
 };
+
+/** Pushes a failed request to the back of the queue so it cannot starve the rest. */
+const rotate = (imdbId: string) =>
+	db.saveScrapedResults(requestedKey(imdbId), [], true).catch(() => undefined);
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse<DrainResponse>) {
 	if (!authorizeScrapeRequest(req, res)) {
@@ -73,11 +77,29 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse<
 	} catch (error) {
 		// Bump the request to the back of the queue. Without this the oldest row is
 		// returned again on the next pass and nothing behind it is ever attempted.
-		await db.saveScrapedResults(requestedKey(plan.imdbId), [], true).catch(() => undefined);
+		await rotate(plan.imdbId);
 		res.status(200).json({
 			status: 'failed',
 			imdbId: plan.imdbId,
 			errorMessage: error instanceof Error ? error.message : 'Unknown error',
+		});
+		return;
+	}
+
+	// `generateScrapeJobs` catches its own metadata errors and returns normally,
+	// so a completed call is not proof of a scrape: with TMDB/MDBList unset it
+	// bails before any scraper runs and nothing is stored. The scrapers clear
+	// `requested:<id>` on success, so the request still being there is the honest
+	// signal. Reporting `drained` without it would tell an operator the queue
+	// moved when nothing happened at all.
+	if (await stillQueued(plan.imdbId, (key) => db.keyExists(key))) {
+		await rotate(plan.imdbId);
+		res.status(200).json({
+			status: 'failed',
+			imdbId: plan.imdbId,
+			errorMessage:
+				'Scrape returned without storing releases. Usually TMDB_API_KEY and/or ' +
+				'MDBLIST_API_KEY are unset — generateScrapeJobs bails before any scraper runs.',
 		});
 		return;
 	}
