@@ -18,6 +18,8 @@ export type FooterProps = {
 	unknownCount: number;
 	shown: number;
 	total: number;
+	/** Which page of releases this is, and whether more follow. */
+	paging: string;
 	status: string;
 	statusKind: 'info' | 'warn' | 'error';
 	keys: string;
@@ -30,6 +32,7 @@ export default function Footer({
 	unknownCount,
 	shown,
 	total,
+	paging,
 	status,
 	statusKind,
 	keys,
@@ -40,10 +43,13 @@ export default function Footer({
 	return (
 		<Box flexDirection="column" marginTop={1}>
 			<Box>
-				<Text color={colour.dim}>{filterFocused ? 'filter: ' : 'filter: '}</Text>
-				<Text color={filterFocused ? colour.accent : colour.dim}>{filter || 'is:tb'}</Text>
+				<Text color={colour.dim}>filter: </Text>
+				<Text color={filterFocused ? colour.accent : colour.dim}>
+					{filter || (filterFocused ? '' : 'is:tb')}
+				</Text>
+				{filterFocused ? <Text color={colour.accent}>▏</Text> : null}
 				<Text color={colour.dim}>
-					{`   ${shown} shown${shown !== total ? ` of ${total}` : ''}`}
+					{`   ${shown} shown${shown !== total ? ` of ${total}` : ''} · ${paging}`}
 				</Text>
 			</Box>
 

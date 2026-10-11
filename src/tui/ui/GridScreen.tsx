@@ -23,6 +23,8 @@ export type GridScreenProps = {
 	width: number;
 	height: number;
 	expectedEpisodes?: number;
+	/** Says why the grid is empty, since "nothing" is not an answer. */
+	emptyMessage: string;
 	busy: boolean;
 	onBack: () => void;
 	onToggleUncached: () => void;
@@ -32,8 +34,16 @@ export type GridScreenProps = {
 	onShowFiles: () => void;
 	/** Rows mid-add, so they read as in-flight rather than simply selectable. */
 	adding: Set<string>;
-	/** Re-run the search for this title. */
+	/** Re-run the search and probe for this title and page. */
 	onRetry: () => void;
+	/** Open the `/` filter line. */
+	onFilter: () => void;
+	/** `[` and `]`. Paging back is free; paging forward may spend a request. */
+	onPage: (direction: -1 | 1) => void;
+	/** `y` — send the selected hash to the terminal clipboard. */
+	onCopyHash: () => void;
+	/** While true, the filter line owns the keyboard. */
+	filterFocused: boolean;
 	onQuit: () => void;
 };
 
@@ -49,6 +59,7 @@ export default function GridScreen(props: GridScreenProps) {
 		width,
 		height,
 		expectedEpisodes,
+		emptyMessage,
 		busy,
 		onBack,
 		onToggleUncached,
@@ -58,29 +69,43 @@ export default function GridScreen(props: GridScreenProps) {
 		onShowFiles,
 		adding,
 		onRetry,
+		onFilter,
+		onPage,
+		onCopyHash,
+		filterFocused,
 		onQuit,
 	} = props;
 
-	useInput((input, key) => {
-		if (key.ctrl && input === 'c') return onQuit();
-		if (key.escape) return onBack();
-		if (busy) return;
-		if (key.upArrow || (key.ctrl && input === 'p')) return onSelect(Math.max(0, selected - 1));
-		if (key.downArrow || (key.ctrl && input === 'n')) {
-			return onSelect(Math.min(rows.length - 1, selected + 1));
-		}
-		if (key.pageUp) return onSelect(Math.max(0, selected - (height - 3)));
-		if (key.pageDown) return onSelect(Math.min(rows.length - 1, selected + (height - 3)));
-		if (key.home) return onSelect(0);
-		if (key.end) return onSelect(rows.length - 1);
-		if (input === 'r') return onRetry();
-		if (input === 'u') return onToggleUncached();
-		if (input === 'z') return onToggleArchives();
-		if (input === 'a') return onAdd();
-		if (key.return) return onShowFiles();
-		if (input === '<') return onSeason(-1);
-		if (input === '>') return onSeason(1);
-	});
+	// Suspended while the filter line is open: two `useInput` handlers both acting
+	// on one keystroke means typing `a` into a filter also adds the selected row.
+	useInput(
+		(input, key) => {
+			if (key.ctrl && input === 'c') return onQuit();
+			if (key.escape) return onBack();
+			if (busy) return;
+			if (key.upArrow || (key.ctrl && input === 'p'))
+				return onSelect(Math.max(0, selected - 1));
+			if (key.downArrow || (key.ctrl && input === 'n')) {
+				return onSelect(Math.min(rows.length - 1, selected + 1));
+			}
+			if (key.pageUp) return onSelect(Math.max(0, selected - (height - 3)));
+			if (key.pageDown) return onSelect(Math.min(rows.length - 1, selected + (height - 3)));
+			if (key.home) return onSelect(0);
+			if (key.end) return onSelect(rows.length - 1);
+			if (input === '/') return onFilter();
+			if (input === '[') return onPage(-1);
+			if (input === ']') return onPage(1);
+			if (input === 'r') return onRetry();
+			if (input === 'u') return onToggleUncached();
+			if (input === 'z') return onToggleArchives();
+			if (input === 'a') return onAdd();
+			if (input === 'y') return onCopyHash();
+			if (key.return) return onShowFiles();
+			if (input === '<') return onSeason(-1);
+			if (input === '>') return onSeason(1);
+		},
+		{ isActive: !filterFocused }
+	);
 
 	if (width < MIN_USABLE_WIDTH) {
 		return (
@@ -134,7 +159,7 @@ export default function GridScreen(props: GridScreenProps) {
 
 			{!busy && rows.length === 0 ? (
 				<Box>
-					<Text color={colour.dim}>nothing to show — press esc to go back</Text>
+					<Text color={colour.dim}>{emptyMessage}</Text>
 				</Box>
 			) : null}
 

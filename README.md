@@ -73,6 +73,94 @@ docker stack deploy -c docker-compose.yml dmm
 
 The website will be accessible at `http://localhost:3000`
 
+## Terminal client (`dmm-tui`)
+
+A terminal client for the search-and-add flow: find a title, pick a release, see
+whether Torbox holds it, and add it — with no browser and no window manager. It
+talks to a DMM instance over its own HTTP API and to Torbox directly; your key
+never reaches DMM.
+
+```bash
+npm run tui
+```
+
+Requires Node 22 or newer.
+
+### Configuration
+
+Either `~/.config/dmm-tui/config.json`:
+
+```json
+{
+	"dmmBaseUrl": "http://localhost:3000",
+	"torboxApiKey": "your-torbox-api-key"
+}
+```
+
+or the environment — `DMM_BASE_URL` and `TORBOX_API_KEY`. Command-line flags win
+over both. Validate without starting the UI:
+
+```bash
+npm run tui -- --check-config
+```
+
+Check what a title resolves to, without any credentials at all:
+
+```bash
+npm run tui -- --dump "Blade Runner"
+```
+
+`--dump` prints each stage of the read pipeline as it goes, so a DMM that is not
+answering says so at the stage that is not answering, rather than as an empty
+grid.
+
+### Keys
+
+| Key      | Does                                             |
+| -------- | ------------------------------------------------ |
+| `↑` `↓`  | move                                             |
+| `enter`  | show the files Torbox lists for this release     |
+| `a`      | add to Torbox                                    |
+| `y`      | send the selected hash to the terminal clipboard |
+| `/`      | filter                                           |
+| `[` `]`  | previous / next page of releases                 |
+| `r`      | re-fetch this page and re-probe Torbox           |
+| `u`      | show or hide uncached releases                   |
+| `z`      | show or hide archive-only releases               |
+| `<` `>`  | previous / next season                           |
+| `esc`    | back                                             |
+| `ctrl-c` | quit                                             |
+
+### Filtering
+
+`/` takes the same grammar as the browser's quick search: bare words are regular
+expressions matched against the release name, `-word` excludes, and terms combine
+with AND.
+
+| Term                                  | Means                                 |
+| ------------------------------------- | ------------------------------------- |
+| `is:tb`, `is:cached`                  | Torbox holds it                       |
+| `is:uncached`                         | Torbox does not                       |
+| `is:archive`                          | held as one archive, nothing playable |
+| `is:added`                            | added by this session                 |
+| `videos:10`, `videos:>5`, `videos:<3` | by video count                        |
+| `blade` , `-dune`                     | include / exclude by name             |
+
+`videos:` counts what Torbox listed. An uncached release has no listing yet, so it
+counts as zero however many episodes its name claims — `videos:>5` finds cached
+rows only. That is the measured number rather than one guessed from the name.
+
+### What it will not do
+
+- **Cached rows add on the key press, with no confirmation.** A confirmation on
+  every free action trains you to press through dialogs, which is the opposite of
+  what the dialog on an uncached add is for. Uncached adds always confirm first.
+- **`y` cannot confirm the copy happened.** It writes an OSC 52 escape sequence,
+  which tmux and many terminals refuse silently. The hash is also printed, so it
+  is recoverable either way.
+- **It does not create releases.** It reads what DMM already has. An instance
+  with no scraper behind it will keep answering "not scraped yet" forever.
+
 ## FAQ
 
 ### I just don't know where to start or why do I need this?

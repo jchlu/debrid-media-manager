@@ -1,12 +1,21 @@
 import type { Config } from '@/tui/config';
-import { episodeLabel, expectedEpisodes, fetchMovieInfo, fetchShowInfo } from '@/tui/dmm/info';
+import { episodeLabel, expectedEpisodes, fetchShowInfo } from '@/tui/dmm/info';
 import { createReleasesClient, type Release } from '@/tui/dmm/releases';
 import { asImdbId, searchTitles, type Title } from '@/tui/dmm/titles';
 import { decideAdd } from '@/tui/logic/addRequest';
+import { applyFilter, describeEmptyFilter } from '@/tui/logic/filter';
 import { toGridRows, visibleRows } from '@/tui/logic/normalise';
+import {
+	applyPageLoaded,
+	describePaging,
+	FIRST_PAGE,
+	planPageMove,
+	type PagingState,
+} from '@/tui/logic/paging';
 import type { GridRow } from '@/tui/logic/types';
 import { addTorrent, pacedAdd } from '@/tui/torbox/add';
 import { probeTorBox, type ProbeFile } from '@/tui/torbox/probe';
+import { describeCopy, sendToClipboard } from '@/tui/ui/clipboard';
 import ConfirmScreen from '@/tui/ui/ConfirmScreen';
 import FileListModal from '@/tui/ui/FileListModal';
 import Footer from '@/tui/ui/Footer';
@@ -49,10 +58,26 @@ export default function App({ config, initialQuery, onQuit }: AppProps) {
 	const [currentTitle, setCurrentTitle] = useState<Title | null>(null);
 	const [season, setSeason] = useState<number | undefined>(undefined);
 	const [seasons, setSeasons] = useState<number[]>([]);
-	const [allRows, setAllRows] = useState<GridRow[]>([]);
+	/**
+	 * Grid rows by DMM page.
+	 *
+	 * Kept per page so `[` never re-asks for a page already on the client, which
+	 * is the difference between scrolling and spending the one rate-limited
+	 * request per 2.5s each time you move back up the list.
+	 */
+	const [pageRows, setPageRows] = useState<Map<number, GridRow[]>>(new Map());
+	const [paging, setPaging] = useState<PagingState>(FIRST_PAGE);
 	const [selected, setSelected] = useState(0);
-	const [unknownCount, setUnknownCount] = useState(0);
 	const [expected, setExpected] = useState<number | undefined>(undefined);
+	/**
+	 * The applied `/` filter. Starts empty on purpose: `config.defaultFilter` is
+	 * `is:tb`, and applying it would silently defeat the `u` toggle that reveals
+	 * uncached rows — the filter would hide exactly what the guard allowed.
+	 */
+	const [filter, setFilter] = useState('');
+	const [filtering, setFiltering] = useState(false);
+	/** The filter as it was when `/` was pressed, so esc can put it back. */
+	const [filterBeforeOpen, setFilterBeforeOpen] = useState('');
 	const [guards, setGuards] = useState({
 		showUncached: config.showUncached,
 		showArchiveOnly: config.showArchiveOnly,
@@ -95,15 +120,15 @@ export default function App({ config, initialQuery, onQuit }: AppProps) {
 
 	/** Challenge → releases → Torbox probe → grid rows. */
 	const loadGrid = useCallback(
-		async (title: Title, wantedSeason?: number) => {
+		async (title: Title, wantedSeason?: number, page = 0) => {
 			setBusy(true);
 			setStatus(NO_STATUS);
 			setCurrentTitle(title);
 			try {
 				const rows: Release[] =
 					title.type === 'show' && wantedSeason !== undefined
-						? (await releases.season(title.imdbid, wantedSeason)).releases
-						: (await releases.movie(title.imdbid)).releases;
+						? (await releases.season(title.imdbid, wantedSeason, page)).releases
+						: (await releases.movie(title.imdbid, page)).releases;
 
 				// A title with no releases cannot be probed, and asking Torbox
 				// about nothing is a wasted round trip.
@@ -114,13 +139,19 @@ export default function App({ config, initialQuery, onQuit }: AppProps) {
 							config.torboxApiBase
 						)
 					: { cached: new Set<string>(), unknown: new Set<string>(), files: new Map() };
-				setUnknownCount(probe.unknown.size);
 
-				setAllRows(toGridRows(rows, probe));
-				setProbeFiles(probe.files);
+				const grid = toGridRows(rows, probe);
+				setPageRows((prev) => new Map(prev).set(page, grid));
+				setPaging((prev) => applyPageLoaded(prev, page, grid));
+				// Merged rather than replaced: file listings for a page already on
+				// screen are still accurate, and re-probing them costs a request.
+				setProbeFiles((prev) => new Map([...prev, ...probe.files]));
 				setSelected(0);
 
-				if (title.type === 'show') {
+				// Season and episode counts belong to the title, not the page, so
+				// they are fetched once. Re-asking on every `]` would spend the
+				// rate limit to recompute an answer already held.
+				if (page === 0 && title.type === 'show') {
 					const info = await fetchShowInfo(config.dmmBaseUrl, title.imdbid).catch(
 						() => null
 					);
@@ -139,8 +170,7 @@ export default function App({ config, initialQuery, onQuit }: AppProps) {
 									wantedSeason
 								)
 					);
-				} else {
-					await fetchMovieInfo(config.dmmBaseUrl, title.imdbid).catch(() => null);
+				} else if (page === 0) {
 					setSeasons([]);
 					setExpected(undefined);
 				}
@@ -151,9 +181,8 @@ export default function App({ config, initialQuery, onQuit }: AppProps) {
 					// A not-yet-scraped title is a state of the *grid*, not of the
 					// picker: the user needs the keys, and staying on the search
 					// screen hid all of them.
-					setAllRows([]);
+					setPaging(FIRST_PAGE);
 					setSelected(0);
-					setUnknownCount(0);
 					setSeason(wantedSeason);
 					setSeasons([]);
 					setExpected(undefined);
@@ -179,11 +208,19 @@ export default function App({ config, initialQuery, onQuit }: AppProps) {
 		[config.dmmBaseUrl, config.torboxApiBase, config.torboxApiKey, releases]
 	);
 
+	/** Forgets every fetched page, for when the title or season changes. */
+	const resetPages = useCallback(() => {
+		setPageRows(new Map());
+		setPaging(FIRST_PAGE);
+		setSelected(0);
+	}, []);
+
 	const runSearch = useCallback(async () => {
 		const trimmed = query.trim();
 		if (!trimmed) return;
 		const imdbId = asImdbId(trimmed);
 		if (imdbId) {
+			resetPages();
 			await loadGrid({ imdbid: imdbId, type: 'movie', title: imdbId });
 			return;
 		}
@@ -201,17 +238,44 @@ export default function App({ config, initialQuery, onQuit }: AppProps) {
 		} finally {
 			setBusy(false);
 		}
-	}, [config.dmmBaseUrl, loadGrid, query]);
+	}, [config.dmmBaseUrl, loadGrid, query, resetPages]);
 
 	useEffect(() => {
 		if (initialQuery) void runSearch();
 	}, [initialQuery, runSearch]);
 
-	const rows = useMemo(() => visibleRows(allRows, guards), [allRows, guards]);
+	/** The page on screen, before guards and before the `/` filter. */
+	const currentPageRows = useMemo(() => pageRows.get(paging.page) ?? [], [pageRows, paging.page]);
 
-	/** Marks one row's `added` flag without disturbing the rest of the list. */
+	const rows = useMemo(
+		() => applyFilter(visibleRows(currentPageRows, guards), filter),
+		[currentPageRows, guards, filter]
+	);
+
+	/**
+	 * Torbox rows with no verdict on this page.
+	 *
+	 * Counted from the raw page rather than the visible rows, because an unknown
+	 * row is exactly the one the guard withholds — counting what is on screen
+	 * would always be zero and the footer would claim the probe was complete.
+	 */
+	const unknownCount = useMemo(
+		() => currentPageRows.filter((r) => r.state === 'unknown').length,
+		[currentPageRows]
+	);
+
+	/** Marks one row's `added` flag without disturbing the rest of the page. */
 	const markAdded = useCallback((hash: string, added: boolean) => {
-		setAllRows((prev) => prev.map((r) => (r.hash === hash ? { ...r, added } : r)));
+		setPageRows((prev) => {
+			const next = new Map<number, GridRow[]>();
+			for (const [page, list] of prev) {
+				next.set(
+					page,
+					list.map((r) => (r.hash === hash ? { ...r, added } : r))
+				);
+			}
+			return next;
+		});
 	}, []);
 
 	const performAdd = useCallback(
@@ -291,10 +355,104 @@ export default function App({ config, initialQuery, onQuit }: AppProps) {
 			const title = titles.find((t) => t.type === 'show');
 			if (!title) return;
 			setSeason(next);
+			// Another season is another release set, so the pages held are its
+			// predecessor's and would show releases from the wrong season.
+			resetPages();
 			void loadGrid(title, next);
 		},
-		[loadGrid, season, seasons, titles]
+		[loadGrid, resetPages, season, seasons, titles]
 	);
+
+	/**
+	 * The `/` filter line.
+	 *
+	 * Applies as you type rather than on enter, so the list narrows under the
+	 * cursor instead of after a second keystroke. Esc restores what was there when
+	 * `/` was pressed, because a filter that cannot be taken back is a trap rather
+	 * than a tool.
+	 */
+	useInput((input, key) => {
+		if (!filtering) return;
+		if (key.escape) {
+			setFilter(filterBeforeOpen);
+			setFiltering(false);
+			setStatus(NO_STATUS);
+			return;
+		}
+		if (key.return) {
+			setFiltering(false);
+			return;
+		}
+		if (key.backspace || key.delete) {
+			setFilter((f) => f.slice(0, -1));
+			return;
+		}
+		if (input && !key.ctrl && !key.meta) setFilter((f) => f + input);
+	});
+
+	const openFilter = useCallback(() => {
+		setFilterBeforeOpen(filter);
+		setFiltering(true);
+	}, [filter]);
+
+	/**
+	 * `[` and `]`.
+	 *
+	 * Backward never asks DMM again. Forward does only when the next page has not
+	 * been fetched, which is the only path here that spends the rate limit.
+	 */
+	const changePage = useCallback(
+		(direction: -1 | 1) => {
+			const move = planPageMove(paging, direction);
+			if (move.action === 'stay') return;
+			if (move.action === 'move') {
+				setPaging((prev) => ({ ...prev, page: move.page }));
+				setSelected(0);
+				setStatus(NO_STATUS);
+				return;
+			}
+			if (currentTitle) void loadGrid(currentTitle, season, move.page);
+		},
+		[currentTitle, loadGrid, paging, season]
+	);
+
+	/**
+	 * `y` — the hash, to paste somewhere.
+	 *
+	 * Sent as an OSC 52 escape, which tmux and many emulators refuse without
+	 * saying so, so the status always repeats the hash on screen too. It cannot
+	 * claim success and does not.
+	 */
+	const copySelectedHash = useCallback(() => {
+		const row = rows[Math.min(selected, Math.max(0, rows.length - 1))];
+		if (!row) return;
+		sendToClipboard(row.hash);
+		setStatus({ text: describeCopy(row.hash, false), kind: 'info' });
+	}, [rows, selected]);
+
+	/**
+	 * Why the grid is empty, when it is.
+	 *
+	 * Only the filter is blamed when the page actually had rows before filtering.
+	 * An empty page and an over-narrow filter look identical on screen otherwise,
+	 * and sending someone to fix their filter when the real answer is "this DMM has
+	 * nothing for that title" wastes their time and teaches them the messages are noise.
+	 */
+	const statusText = useMemo(() => {
+		if (status?.text) return status.text;
+		if (filter.trim() && rows.length === 0 && currentPageRows.length > 0) {
+			return describeEmptyFilter(filter);
+		}
+		return '';
+	}, [currentPageRows.length, filter, rows.length, status]);
+
+	const emptyMessage = useMemo(() => {
+		if (filter.trim() && rows.length === 0 && currentPageRows.length > 0) {
+			return `nothing on this page matches "${filter.trim()}" — esc clears it`;
+		}
+		if (currentPageRows.length === 0) return 'nothing to show — press esc to go back';
+		return 'nothing to show — press u to include uncached releases';
+	}, [currentPageRows.length, filter, rows.length]);
 
 	if (screen === 'search') {
 		return (
@@ -313,8 +471,11 @@ export default function App({ config, initialQuery, onQuit }: AppProps) {
 						const title = titles[titleIndex];
 						// Enter either searches, or opens what is already listed.
 						// Doing nothing when the list is empty made the key look dead.
-						if (title) void loadGrid(title);
-						else void runSearch();
+						if (title) {
+							resetPages();
+							setFilter('');
+							void loadGrid(title);
+						} else void runSearch();
 					}}
 					busy={busy}
 					searched={searched}
@@ -374,6 +535,7 @@ export default function App({ config, initialQuery, onQuit }: AppProps) {
 				width={terminalWidth}
 				height={terminalHeight}
 				expectedEpisodes={expected}
+				emptyMessage={emptyMessage}
 				busy={busy}
 				onBack={() => {
 					setScreen('search');
@@ -389,8 +551,15 @@ export default function App({ config, initialQuery, onQuit }: AppProps) {
 				}}
 				onSeason={changeSeason}
 				onRetry={() => {
-					if (currentTitle) void loadGrid(currentTitle, season);
+					// Re-fetches the releases *and* re-probes Torbox for this page,
+					// which is what both "it says not scraped, try again" and "the
+					// cache answers changed" need. Cached pages behind it are kept.
+					if (currentTitle) void loadGrid(currentTitle, season, paging.page);
 				}}
+				onFilter={openFilter}
+				onPage={changePage}
+				onCopyHash={copySelectedHash}
+				filterFocused={filtering}
 				onAdd={() => requestAdd(rows[Math.min(selected, Math.max(0, rows.length - 1))])}
 				adding={adding}
 				onShowFiles={() => {
@@ -404,15 +573,17 @@ export default function App({ config, initialQuery, onQuit }: AppProps) {
 			/>
 			<Footer
 				colour={colour}
-				filter={config.defaultFilter}
-				filterFocused={false}
+				filter={filter || (filtering ? '' : config.defaultFilter)}
+				filterFocused={filtering}
 				unknownCount={unknownCount}
 				shown={rows.length}
-				total={allRows.length}
-				status={status?.text ?? ''}
+				total={currentPageRows.length}
+				paging={describePaging(paging)}
+				status={statusText}
 				statusKind={status?.kind ?? 'info'}
 				keys={
-					`a add · r retry · u ${guards.showUncached ? 'hide' : 'show'} uncached · ` +
+					`a add · y hash · / filter · [ ] page (${describePaging(paging)}) · ` +
+					`r refresh · u ${guards.showUncached ? 'hide' : 'show'} uncached · ` +
 					`z ${guards.showArchiveOnly ? 'hide' : 'show'} archives · esc back · ctrl-c quit`
 				}
 			/>
