@@ -64,6 +64,7 @@ import {
 } from '@/utils/fetchTorrents';
 import { generateHashList, shareableTorrents } from '@/utils/hashList';
 import { filterLibraryItems, isRdBlockedFilename } from '@/utils/libraryFilters';
+import { identifiable, identifyLibrary, type LibraryIdentification } from '@/utils/libraryIdentify';
 import { handleSelectTorrent, resetSelection, selectShown } from '@/utils/librarySelection';
 import { handleChangeType } from '@/utils/libraryTypeManagement';
 import { normalize } from '@/utils/mediaId';
@@ -157,6 +158,25 @@ function TorrentsPage() {
 	} = useLibraryCache();
 
 	const lastFetchLabel = useRelativeTimeLabel(lastFetchTime, 'Just now');
+
+	// Name the movies and shows once every provider has finished loading. Each item is asked
+	// about once per visit; the server keeps answers per release, so later visits
+	// cost the identifier only the releases it has never seen.
+	const [identifications, setIdentifications] = useState<Record<string, LibraryIdentification>>(
+		{}
+	);
+	const askedIdentify = useRef(new Set<string>());
+	useEffect(() => {
+		if (cacheLoading || isFetching) return;
+		const todo = cachedLibraryItems.filter(
+			(t) => identifiable(t) && !askedIdentify.current.has(t.id)
+		);
+		if (todo.length === 0) return;
+		todo.forEach((t) => askedIdentify.current.add(t.id));
+		identifyLibrary(todo).then((found) => {
+			if (Object.keys(found).length) setIdentifications((prev) => ({ ...prev, ...found }));
+		});
+	}, [cacheLoading, isFetching, cachedLibraryItems]);
 
 	// loading states
 	const [grouping, setGrouping] = useState(false);
@@ -2031,7 +2051,15 @@ function TorrentsPage() {
 													});
 												}}
 												onRefreshLibrary={refreshLibrary}
+												identification={identifications[torrent.id]}
 												onShowInfo={async (t) => {
+													const found = identifications[t.id];
+													const poster = found
+														? {
+																imdbId: found.imdbId,
+																title: found.title,
+															}
+														: undefined;
 													if (t.id.startsWith('rd:') && rdKey) {
 														const info = await getTorrentInfo(
 															rdKey,
@@ -2077,16 +2105,18 @@ function TorrentsPage() {
 															rdKey,
 															setUserTorrentsList,
 															torrentDB,
-															setSelectedTorrents
+															setSelectedTorrents,
+															poster
 														);
 													} else if (t.id.startsWith('ad:') && adKey) {
-														await handleShowInfoForAD(t, adKey);
+														await handleShowInfoForAD(t, adKey, poster);
 													} else if (t.id.startsWith('tb:') && tbKey) {
 														await handleShowInfoForTB(
 															t,
 															tbKey,
 															setUserTorrentsList,
-															setSelectedTorrents
+															setSelectedTorrents,
+															poster
 														);
 													} else if (t.id.startsWith('pm:') && pmKey) {
 														await handleShowInfoForPM(
@@ -2094,7 +2124,8 @@ function TorrentsPage() {
 															pmKey,
 															setUserTorrentsList,
 															setSelectedTorrents,
-															shouldDownloadMagnets
+															shouldDownloadMagnets,
+															poster
 														);
 													} else if (t.id.startsWith('oc:') && ocKey) {
 														await handleShowInfoForOC(
@@ -2102,7 +2133,8 @@ function TorrentsPage() {
 															ocKey,
 															setUserTorrentsList,
 															setSelectedTorrents,
-															shouldDownloadMagnets
+															shouldDownloadMagnets,
+															poster
 														);
 													} else if (t.id.startsWith('dl:') && dlKey) {
 														await handleShowInfoForDL(
@@ -2110,7 +2142,8 @@ function TorrentsPage() {
 															dlKey,
 															setUserTorrentsList,
 															setSelectedTorrents,
-															shouldDownloadMagnets
+															shouldDownloadMagnets,
+															poster
 														);
 													} else {
 														console.error(

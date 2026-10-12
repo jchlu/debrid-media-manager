@@ -17,6 +17,7 @@ import {
 	handleDeleteTbTorrent,
 } from '@/utils/deleteTorrent';
 import { handleShare } from '@/utils/hashList';
+import type { LibraryIdentification } from '@/utils/libraryIdentify';
 import { normalize } from '@/utils/mediaId';
 import { getOffcloudStatusText } from '@/utils/offcloudStatus';
 import { getPremiumizeStatusText } from '@/utils/premiumizeStatus';
@@ -26,6 +27,7 @@ import { shortenNumber } from '@/utils/speed';
 import { getTorBoxStatusText } from '@/utils/torBoxStatus';
 import { isWebDownloadRowId } from '@/utils/torboxWebDownload';
 import {
+	BadgeCheck,
 	Cast,
 	Check,
 	Film,
@@ -70,6 +72,8 @@ interface TorrentRowProps {
 	onShowInfo: (torrent: UserTorrent) => void;
 	onTypeChange: (torrent: UserTorrent) => void;
 	onRefreshLibrary?: () => Promise<void>;
+	/** The movie or show content-identifier confidently named from the filename. */
+	identification?: LibraryIdentification;
 }
 
 function TorrentRow({
@@ -93,6 +97,7 @@ function TorrentRow({
 	onShowInfo,
 	onTypeChange,
 	onRefreshLibrary,
+	identification,
 }: TorrentRowProps) {
 	const router = useRouter();
 	const [showCastModal, setShowCastModal] = useState(false);
@@ -438,7 +443,25 @@ function TorrentRow({
 									}[torrent.mediaType]
 								}
 							</div>
-							&nbsp;<strong>{torrent.title}</strong>{' '}
+							&nbsp;
+							{identification ? (
+								<strong>
+									{identification.title}
+									{identification.year ? ` (${identification.year})` : ''}
+									{/* a show's parsed title ends in the seasons it holds: "Title ➡️ S01" */}
+									{torrent.title.includes(' ➡️ ')
+										? torrent.title.slice(torrent.title.indexOf(' ➡️ '))
+										: ''}
+									<BadgeCheck
+										className="ml-1 inline-block h-4 w-4 align-text-bottom text-sky-400"
+										aria-label={`Verified: identified from the filename as ${identification.imdbId}`}
+									>
+										<title>{`Verified: identified from the filename as ${identification.imdbId}`}</title>
+									</BadgeCheck>
+								</strong>
+							) : (
+								<strong>{torrent.title}</strong>
+							)}{' '}
 							{hashFilterText ? (
 								<Link
 									href={`/library?hash=${torrent.hash}&page=1`}
@@ -467,20 +490,26 @@ function TorrentRow({
 									{tvTitleFilterText}
 								</Link>
 							)}
-							{torrent.info && (
+							{(identification || torrent.info) && (
 								<Link
-									href={`/search?query=${encodeURIComponent(
-										(
-											torrent.info.title +
-											' ' +
-											(torrent.info.year || '')
-										).trim() || torrent.title
-									)}`}
+									href={
+										identification
+											? `/${torrent.mediaType === 'tv' ? 'show' : 'movie'}/${identification.imdbId}`
+											: `/search?query=${encodeURIComponent(
+													(
+														torrent.info!.title +
+														' ' +
+														(torrent.info!.year || '')
+													).trim() || torrent.title
+												)}`
+									}
 									target="_blank"
 									className="ml-1 mr-2 inline-block cursor-pointer rounded border-2 border-blue-500 bg-blue-900/30 px-1 py-0 text-xs font-bold text-blue-100 transition-colors hover:bg-blue-800/50"
 									onClick={(e) => e.stopPropagation()}
 								>
-									Search again
+									{identification
+										? `Go to ${torrent.mediaType === 'tv' ? 'show' : 'movie'} page`
+										: 'Search again'}
 								</Link>
 							)}
 							<br />

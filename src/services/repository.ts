@@ -40,6 +40,7 @@ import {
 	type TransferMetaSource,
 	ZurgKeysService,
 } from './database';
+import type { FilenameIdentification } from './database/hashImdb';
 import { HashSearchParams } from './database/hashSearch';
 import { RealDebridOperation } from './database/rdOperational';
 import { StreamServerStatus, TorrentioUrlCheckResult } from './database/streamHealth';
@@ -360,8 +361,8 @@ export class Repository {
 		return this.nzb2rdMapService.recordFailed(releaseId, jobId, imdbId, error, title);
 	}
 
-	public removeNzb2rdTransfer(releaseId: string) {
-		return this.nzb2rdMapService.removeTransfer(releaseId);
+	public removeNzb2rdTransfer(releaseId: string, jobId: string) {
+		return this.nzb2rdMapService.removeTransfer(releaseId, jobId);
 	}
 
 	// Users parked on someone else's in-flight job, to be given the content when it lands
@@ -1323,6 +1324,14 @@ export class Repository {
 
 	public identifyLibraryHashes(hashes: string[]) {
 		return this.hashImdbService.identifyHashes(hashes);
+	}
+
+	public getFilenameIdentifications(keys: { hash: string; titleKey: string }[]) {
+		return this.hashImdbService.getFilenameIdentifications(keys);
+	}
+
+	public async saveFilenameIdentifications(rows: FilenameIdentification[]) {
+		return this.hashImdbService.saveFilenameIdentifications(await withoutBlockedHashes(rows));
 	}
 
 	// Report Service Methods

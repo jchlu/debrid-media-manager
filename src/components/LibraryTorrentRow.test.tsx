@@ -755,4 +755,83 @@ describe('LibraryTorrentRow Reinsert Functionality', () => {
 			expect(container.textContent).toContain('In cloud');
 		});
 	});
+	describe('identified movie', () => {
+		const renderRow = (identification?: {
+			imdbId: string;
+			title: string;
+			year: number | null;
+		}) =>
+			render(
+				<table>
+					<tbody>
+						<LibraryTorrentRow
+							{...defaultProps}
+							torrent={{
+								...mockTorrent,
+								title: 'Spider-Man Brand New Day (2026)',
+								info: {
+									title: 'Spider-Man Brand New Day',
+									year: 2026,
+								} as unknown as UserTorrent['info'],
+							}}
+							identification={identification}
+						/>
+					</tbody>
+				</table>
+			);
+
+		it('replaces the parsed title with the verified one and links to its movie page', () => {
+			renderRow({ imdbId: 'tt22084616', title: 'Spider-Man: Brand New Day', year: 2026 });
+			expect(screen.getByText('Spider-Man: Brand New Day (2026)')).toBeInTheDocument();
+			expect(screen.queryByText('Spider-Man Brand New Day (2026)')).toBeNull();
+			expect(
+				screen.getByLabelText('Verified: identified from the filename as tt22084616')
+			).toBeInTheDocument();
+			expect(screen.getByRole('link', { name: 'Go to movie page' })).toHaveAttribute(
+				'href',
+				'/movie/tt22084616'
+			);
+		});
+
+		it('keeps the parsed title and the search without a confident identification', () => {
+			renderRow();
+			expect(screen.getByText('Spider-Man Brand New Day (2026)')).toBeInTheDocument();
+			expect(screen.queryByLabelText(/Verified/)).toBeNull();
+			expect(screen.getByRole('link', { name: 'Search again' })).toHaveAttribute(
+				'href',
+				'/search?query=Spider-Man%20Brand%20New%20Day%202026'
+			);
+		});
+
+		it('names an identified show, keeps its seasons and links to its show page', () => {
+			render(
+				<table>
+					<tbody>
+						<LibraryTorrentRow
+							{...defaultProps}
+							torrent={{
+								...mockTorrent,
+								mediaType: 'tv',
+								title: 'Game of Thrones ➡️ S04',
+								info: {
+									title: 'Game of Thrones',
+								} as unknown as UserTorrent['info'],
+							}}
+							identification={{
+								imdbId: 'tt0944947',
+								title: 'Game of Thrones',
+								year: 2011,
+							}}
+						/>
+					</tbody>
+				</table>
+			);
+			// the verified name keeps the seasons the release holds
+			expect(screen.getByText('Game of Thrones (2011) ➡️ S04')).toBeInTheDocument();
+			expect(screen.getByRole('link', { name: 'Go to show page' })).toHaveAttribute(
+				'href',
+				'/show/tt0944947'
+			);
+		});
+	});
 });
